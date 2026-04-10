@@ -9,7 +9,7 @@ export default function ScheduleTable({ items = [] }) {
           backgroundColor: "#fafbfc"
         }}
       >
-        No scheduling result yet.
+        暂无排产结果。
       </div>
     );
   }
@@ -28,12 +28,12 @@ export default function ScheduleTable({ items = [] }) {
       >
         <thead style={{ backgroundColor: "#f3f5f7" }}>
           <tr>
-            <th style={cellStyle}>Order No</th>
-            <th style={cellStyle}>Task Name</th>
-            <th style={cellStyle}>Machine</th>
-            <th style={cellStyle}>Start Time</th>
-            <th style={cellStyle}>End Time</th>
-            <th style={cellStyle}>Machine Seq</th>
+            <th style={cellStyle}>订单号</th>
+            <th style={cellStyle}>任务名</th>
+            <th style={cellStyle}>机器</th>
+            <th style={cellStyle}>开始时间</th>
+            <th style={cellStyle}>结束时间</th>
+            <th style={cellStyle}>机器内顺序号</th>
           </tr>
         </thead>
         <tbody>

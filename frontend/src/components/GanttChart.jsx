@@ -9,7 +9,7 @@ export default function GanttChart({ data = [] }) {
           backgroundColor: "#fafbfc"
         }}
       >
-        No gantt data yet.
+        暂无甘特图数据。
       </div>
     );
   }
@@ -38,7 +38,7 @@ export default function GanttChart({ data = [] }) {
           <div style={{ marginBottom: "12px" }}>
             <strong>{machine.machine_name || machine.machine_code}</strong>
             <div style={{ color: "#667085", fontSize: "13px" }}>
-              {machine.machine_code || "No machine code"}
+              {machine.machine_code || "未配置机器编码"}
             </div>
           </div>
 
@@ -118,7 +118,7 @@ export default function GanttChart({ data = [] }) {
                   borderRadius: "8px"
                 }}
               >
-                {task.order_no} / {task.task_name} / {task.start_time} to {task.end_time}
+                {task.order_no} / {task.task_name} / {task.start_time} 至 {task.end_time}
               </div>
             ))}
           </div>

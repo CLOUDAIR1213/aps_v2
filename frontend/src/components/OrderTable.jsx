@@ -1,6 +1,6 @@
 export default function OrderTable({ orders = [] }) {
   if (orders.length === 0) {
-    return <p>No order data yet.</p>;
+    return <p>暂无订单数据。</p>;
   }
 
   return (
@@ -8,12 +8,12 @@ export default function OrderTable({ orders = [] }) {
       <thead>
         <tr>
           <th style={cellStyle}>ID</th>
-          <th style={cellStyle}>Order No</th>
-          <th style={cellStyle}>Product</th>
-          <th style={cellStyle}>Quantity</th>
-          <th style={cellStyle}>Priority</th>
-          <th style={cellStyle}>Due Date</th>
-          <th style={cellStyle}>Status</th>
+          <th style={cellStyle}>订单号</th>
+          <th style={cellStyle}>产品名称</th>
+          <th style={cellStyle}>数量</th>
+          <th style={cellStyle}>优先级</th>
+          <th style={cellStyle}>交期</th>
+          <th style={cellStyle}>状态</th>
         </tr>
       </thead>
       <tbody>

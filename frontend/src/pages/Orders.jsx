@@ -26,7 +26,7 @@ export default function Orders() {
       setError("");
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "Failed to load orders."
+        requestError?.response?.data?.detail || "订单数据加载失败。"
       );
     } finally {
       setLoading(false);
@@ -58,11 +58,11 @@ export default function Orders() {
         due_date: "",
         status: "pending"
       });
-      setMessage("Order created successfully.");
+      setMessage("订单新增成功。");
       await loadOrders();
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "Failed to create order."
+        requestError?.response?.data?.detail || "订单新增失败。"
       );
     } finally {
       setSubmitting(false);
@@ -71,18 +71,18 @@ export default function Orders() {
 
   return (
     <section style={{ display: "grid", gap: "16px" }}>
-      <h1>Orders</h1>
+      <h1>订单管理</h1>
       <form onSubmit={handleSubmit} style={cardStyle}>
         <div style={gridStyle}>
           <input
-            placeholder="Order No"
+            placeholder="订单号"
             value={form.order_no}
             onChange={(event) => setForm({ ...form, order_no: event.target.value })}
             style={inputStyle}
             required
           />
           <input
-            placeholder="Product Name"
+            placeholder="产品名称"
             value={form.product_name}
             onChange={(event) => setForm({ ...form, product_name: event.target.value })}
             style={inputStyle}
@@ -90,7 +90,7 @@ export default function Orders() {
           />
           <input
             type="number"
-            placeholder="Quantity"
+            placeholder="数量"
             value={form.quantity}
             onChange={(event) => setForm({ ...form, quantity: event.target.value })}
             style={inputStyle}
@@ -98,7 +98,7 @@ export default function Orders() {
           />
           <input
             type="number"
-            placeholder="Priority"
+            placeholder="优先级"
             value={form.priority}
             onChange={(event) => setForm({ ...form, priority: event.target.value })}
             style={inputStyle}
@@ -113,12 +113,12 @@ export default function Orders() {
           />
         </div>
         <button type="submit" disabled={submitting} style={buttonStyle}>
-          {submitting ? "Submitting..." : "Create Order"}
+          {submitting ? "提交中..." : "新增订单"}
         </button>
       </form>
       {message ? <div style={successStyle}>{message}</div> : null}
       {error ? <div style={errorStyle}>{error}</div> : null}
-      {loading ? <p>Loading...</p> : null}
+      {loading ? <p>加载中...</p> : null}
       <OrderTable orders={orders} />
     </section>
   );

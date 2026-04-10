@@ -21,7 +21,7 @@ export default function ScheduleResults() {
           setResult(null);
         } else {
           setError(
-            requestError?.response?.data?.detail || "Failed to load scheduling results."
+            requestError?.response?.data?.detail || "排产结果加载失败。"
           );
         }
       } finally {
@@ -33,26 +33,26 @@ export default function ScheduleResults() {
   }, []);
 
   if (loading) {
-    return <section><h1>Schedule Results</h1><p>Loading...</p></section>;
+    return <section><h1>排产结果</h1><p>加载中...</p></section>;
   }
 
   if (error) {
-    return <section><h1>Schedule Results</h1><p>{error}</p></section>;
+    return <section><h1>排产结果</h1><p>{error}</p></section>;
   }
 
   if (!result?.schedule) {
     return (
       <section style={{ display: "grid", gap: "16px" }}>
-        <h1>Schedule Results</h1>
+        <h1>排产结果</h1>
         <div
           style={{
             padding: "20px",
             border: "1px solid #d7dbe2",
             borderRadius: "12px",
             backgroundColor: "#fafbfc"
-          }}
-        >
-          No scheduling result yet.
+        }}
+      >
+          暂无排产结果。
         </div>
       </section>
     );
@@ -63,8 +63,8 @@ export default function ScheduleResults() {
   return (
     <section style={{ display: "grid", gap: "18px" }}>
       <div>
-        <h1>Schedule Results</h1>
-        <p style={{ color: "#667085" }}>Latest scheduling plan and detailed items.</p>
+        <h1>排产结果</h1>
+        <p style={{ color: "#667085" }}>展示最新一次排产方案及其明细。</p>
       </div>
 
       <div
@@ -74,10 +74,10 @@ export default function ScheduleResults() {
           gap: "12px"
         }}
       >
-        <InfoCard label="Schedule No" value={schedule.schedule_no} />
-        <InfoCard label="Name" value={schedule.name} />
-        <InfoCard label="Status" value={schedule.status} />
-        <InfoCard label="Created At" value={schedule.created_at} />
+        <InfoCard label="方案编号" value={schedule.schedule_no} />
+        <InfoCard label="方案名称" value={schedule.name} />
+        <InfoCard label="状态" value={schedule.status} />
+        <InfoCard label="创建时间" value={schedule.created_at} />
       </div>
 
       <ScheduleTable items={items || []} />

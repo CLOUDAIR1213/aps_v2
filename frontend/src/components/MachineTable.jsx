@@ -1,6 +1,6 @@
 export default function MachineTable({ machines = [] }) {
   if (machines.length === 0) {
-    return <p>No machine data yet.</p>;
+    return <p>暂无机器数据。</p>;
   }
 
   return (
@@ -8,11 +8,11 @@ export default function MachineTable({ machines = [] }) {
       <thead>
         <tr>
           <th style={cellStyle}>ID</th>
-          <th style={cellStyle}>Code</th>
-          <th style={cellStyle}>Name</th>
-          <th style={cellStyle}>Type</th>
-          <th style={cellStyle}>Status</th>
-          <th style={cellStyle}>Capacity/Day</th>
+          <th style={cellStyle}>编码</th>
+          <th style={cellStyle}>名称</th>
+          <th style={cellStyle}>类型</th>
+          <th style={cellStyle}>状态</th>
+          <th style={cellStyle}>日产能</th>
         </tr>
       </thead>
       <tbody>

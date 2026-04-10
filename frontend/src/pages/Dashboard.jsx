@@ -47,9 +47,9 @@ export default function Dashboard() {
   return (
     <section style={{ display: "grid", gap: "20px" }}>
       <div>
-        <h1 style={{ marginBottom: "8px" }}>Dashboard</h1>
+        <h1 style={{ marginBottom: "8px" }}>系统看板</h1>
         <p style={{ color: "#667085", margin: 0 }}>
-          Lightweight APS overview for machine shop scheduling.
+          机械加工行业轻量 APS 排产系统概览。
         </p>
       </div>
 
@@ -61,28 +61,28 @@ export default function Dashboard() {
 
       <div style={panelStyle}>
         <h2 style={{ marginTop: 0, marginBottom: "12px", fontSize: "20px" }}>
-          Latest Schedule
+          最近一次排产方案
         </h2>
-        {loading ? <p style={{ margin: 0 }}>Loading...</p> : null}
+        {loading ? <p style={{ margin: 0 }}>加载中...</p> : null}
         {!loading && latestSchedule ? (
           <div style={{ display: "grid", gap: "8px" }}>
             <div>
-              <strong>Schedule No:</strong> {latestSchedule.schedule_no}
+              <strong>方案编号：</strong> {latestSchedule.schedule_no}
             </div>
             <div>
-              <strong>Name:</strong> {latestSchedule.name}
+              <strong>方案名称：</strong> {latestSchedule.name}
             </div>
             <div>
-              <strong>Status:</strong> {latestSchedule.status}
+              <strong>状态：</strong> {latestSchedule.status}
             </div>
             <div>
-              <strong>Created At:</strong> {latestSchedule.created_at}
+              <strong>创建时间：</strong> {latestSchedule.created_at}
             </div>
           </div>
         ) : null}
         {!loading && !latestSchedule ? (
           <div style={{ color: "#667085" }}>
-            No schedule result yet. Open the Scheduling page to generate tasks and run scheduling.
+            暂无排产方案，请前往排产页面生成任务并执行排产。
           </div>
         ) : null}
       </div>

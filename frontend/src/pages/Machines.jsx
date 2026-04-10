@@ -25,7 +25,7 @@ export default function Machines() {
       setError("");
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "Failed to load machines."
+        requestError?.response?.data?.detail || "机器数据加载失败。"
       );
     } finally {
       setLoading(false);
@@ -54,11 +54,11 @@ export default function Machines() {
         status: "idle",
         capacity_per_day: 480
       });
-      setMessage("Machine created successfully.");
+      setMessage("机器新增成功。");
       await loadMachines();
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "Failed to create machine."
+        requestError?.response?.data?.detail || "机器新增失败。"
       );
     } finally {
       setSubmitting(false);
@@ -67,25 +67,25 @@ export default function Machines() {
 
   return (
     <section style={{ display: "grid", gap: "16px" }}>
-      <h1>Machines</h1>
+      <h1>机器管理</h1>
       <form onSubmit={handleSubmit} style={cardStyle}>
         <div style={gridStyle}>
           <input
-            placeholder="Machine Code"
+            placeholder="机器编码"
             value={form.code}
             onChange={(event) => setForm({ ...form, code: event.target.value })}
             style={inputStyle}
             required
           />
           <input
-            placeholder="Machine Name"
+            placeholder="机器名称"
             value={form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
             style={inputStyle}
             required
           />
           <input
-            placeholder="Type"
+            placeholder="类型"
             value={form.type}
             onChange={(event) => setForm({ ...form, type: event.target.value })}
             style={inputStyle}
@@ -93,7 +93,7 @@ export default function Machines() {
           />
           <input
             type="number"
-            placeholder="Capacity Per Day"
+            placeholder="日产能"
             value={form.capacity_per_day}
             onChange={(event) =>
               setForm({ ...form, capacity_per_day: event.target.value })
@@ -103,12 +103,12 @@ export default function Machines() {
           />
         </div>
         <button type="submit" disabled={submitting} style={buttonStyle}>
-          {submitting ? "Submitting..." : "Create Machine"}
+          {submitting ? "提交中..." : "新增机器"}
         </button>
       </form>
       {message ? <div style={successStyle}>{message}</div> : null}
       {error ? <div style={errorStyle}>{error}</div> : null}
-      {loading ? <p>Loading...</p> : null}
+      {loading ? <p>加载中...</p> : null}
       <MachineTable machines={machines} />
     </section>
   );

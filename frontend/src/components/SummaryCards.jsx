@@ -1,9 +1,9 @@
 export default function SummaryCards({ summary, loading }) {
   const cards = [
-    { title: "Machines", value: summary?.machine_count ?? 0 },
-    { title: "Orders", value: summary?.order_count ?? 0 },
-    { title: "Pending Orders", value: summary?.pending_order_count ?? 0 },
-    { title: "Scheduled Orders", value: summary?.scheduled_order_count ?? 0 }
+    { title: "机器总数", value: summary?.machine_count ?? 0 },
+    { title: "订单总数", value: summary?.order_count ?? 0 },
+    { title: "待排产订单", value: summary?.pending_order_count ?? 0 },
+    { title: "已排产订单", value: summary?.scheduled_order_count ?? 0 }
   ];
 
   return (

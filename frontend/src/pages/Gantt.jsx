@@ -21,7 +21,7 @@ export default function Gantt() {
           setData([]);
         } else {
           setError(
-            requestError?.response?.data?.detail || "Failed to load gantt data."
+            requestError?.response?.data?.detail || "甘特图数据加载失败。"
           );
         }
       } finally {
@@ -34,9 +34,9 @@ export default function Gantt() {
 
   return (
     <section style={{ display: "grid", gap: "16px" }}>
-      <h1>Gantt</h1>
-      <p style={{ color: "#667085" }}>Latest schedule grouped by machine.</p>
-      {loading ? <p>Loading...</p> : null}
+      <h1>甘特图</h1>
+      <p style={{ color: "#667085" }}>按机器分组展示最新排产方案。</p>
+      {loading ? <p>加载中...</p> : null}
       {error ? <p>{error}</p> : null}
       {!loading && !error ? <GanttChart data={data} /> : null}
     </section>

@@ -19,10 +19,10 @@ export default function Scheduling() {
     try {
       const data = await generateTasks();
       setTaskCount(data.length);
-      setMessage(`Tasks generated successfully. ${data.length} pending tasks created.`);
+      setMessage(`任务生成成功，共生成 ${data.length} 条待排产任务。`);
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "Failed to generate tasks."
+        requestError?.response?.data?.detail || "任务生成失败。"
       );
     } finally {
       setIsGenerating(false);
@@ -30,7 +30,7 @@ export default function Scheduling() {
   };
 
   const handleRun = async () => {
-    const confirmed = window.confirm("Run rule-based scheduling now?");
+    const confirmed = window.confirm("确认现在执行规则排产吗？");
     if (!confirmed) {
       return;
     }
@@ -42,11 +42,11 @@ export default function Scheduling() {
     try {
       const data = await runScheduling();
       const itemCount = data?.items?.length || 0;
-      setMessage(`Scheduling completed. ${itemCount} schedule items created.`);
+      setMessage(`排产完成，本次生成 ${itemCount} 条排产明细。`);
       navigate("/schedule-results");
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "Failed to run scheduling."
+        requestError?.response?.data?.detail || "排产执行失败。"
       );
     } finally {
       setIsScheduling(false);
@@ -56,10 +56,9 @@ export default function Scheduling() {
   return (
     <section style={{ display: "grid", gap: "16px", maxWidth: "900px" }}>
       <div>
-        <h1>Scheduling</h1>
+        <h1>排产执行</h1>
         <p style={{ color: "#667085", lineHeight: 1.6 }}>
-          Generate pending tasks first, then run scheduling. After success, open the
-          results page or gantt page to review the latest plan.
+          先生成待排产任务，再执行规则排产。排产成功后可前往结果页和甘特图页查看最新方案。
         </p>
       </div>
 
@@ -76,7 +75,7 @@ export default function Scheduling() {
           disabled={isGenerating || isScheduling}
           style={primaryButtonStyle}
         >
-          {isGenerating ? "Generating..." : "Generate Tasks"}
+          {isGenerating ? "生成中..." : "生成任务"}
         </button>
 
         <button
@@ -85,31 +84,31 @@ export default function Scheduling() {
           disabled={isGenerating || isScheduling}
           style={secondaryButtonStyle}
         >
-          {isScheduling ? "Scheduling..." : "Run Scheduling"}
+          {isScheduling ? "排产中..." : "一键排产"}
         </button>
       </div>
 
       {taskCount !== null ? (
-        <div style={infoCardStyle}>Latest generated task count: {taskCount}</div>
+        <div style={infoCardStyle}>最近一次生成任务数量：{taskCount}</div>
       ) : null}
 
       {message ? <div style={successStyle}>{message}</div> : null}
       {error ? <div style={errorStyle}>{error}</div> : null}
 
       <div style={infoCardStyle}>
-        <div style={{ fontWeight: 600, marginBottom: "8px" }}>Instructions</div>
+        <div style={{ fontWeight: 600, marginBottom: "8px" }}>操作说明</div>
         <div style={{ color: "#475467", lineHeight: 1.7 }}>
-          1. Click "Generate Tasks" to expand pending orders and routing operations into schedule tasks.
+          1. 点击“生成任务”，从待排产订单和工艺路线展开生成 `schedule_tasks`。
           <br />
-          2. Click "Run Scheduling" to build the latest schedule result.
+          2. 点击“一键排产”，执行规则排产并生成最新排产方案。
           <br />
-          3. Open "Schedule Results" or "Gantt" after scheduling finishes.
+          3. 排产完成后可前往结果页或甘特图页查看结果。
         </div>
       </div>
 
       <div style={{ display: "flex", gap: "14px", flexWrap: "wrap" }}>
-        <Link to="/schedule-results">Open Schedule Results</Link>
-        <Link to="/gantt">Open Gantt</Link>
+        <Link to="/schedule-results">查看排产结果</Link>
+        <Link to="/gantt">查看甘特图</Link>
       </div>
     </section>
   );

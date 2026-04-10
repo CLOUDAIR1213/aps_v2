@@ -1,13 +1,13 @@
 import { Link, Outlet } from "react-router-dom";
 
 const navItems = [
-  { to: "/", label: "Home" },
-  { to: "/scheduling", label: "Scheduling" },
-  { to: "/schedule-results", label: "Results" },
-  { to: "/gantt", label: "Gantt" },
-  { to: "/machines", label: "Machines" },
-  { to: "/orders", label: "Orders" },
-  { to: "/routings", label: "Routings" }
+  { to: "/", label: "首页" },
+  { to: "/scheduling", label: "排产" },
+  { to: "/schedule-results", label: "结果" },
+  { to: "/gantt", label: "甘特图" },
+  { to: "/machines", label: "机器" },
+  { to: "/orders", label: "订单" },
+  { to: "/routings", label: "工艺路线" }
 ];
 
 export default function App() {
@@ -23,9 +23,9 @@ export default function App() {
       }}
     >
       <header style={{ marginBottom: "24px" }}>
-        <h1 style={{ marginBottom: "8px" }}>APS Demo</h1>
+        <h1 style={{ marginBottom: "8px" }}>APS 演示系统</h1>
         <p style={{ margin: 0, color: "#667085" }}>
-          Lightweight scheduling demo for machining workshops.
+          面向机械加工场景的轻量 APS 排产演示系统。
         </p>
       </header>
       <nav

@@ -40,7 +40,7 @@ export default function Routings() {
         setMachines(machinesData);
       } catch (requestError) {
         setError(
-          requestError?.response?.data?.detail || "Failed to load base data."
+          requestError?.response?.data?.detail || "基础数据加载失败。"
         );
       }
     };
@@ -66,7 +66,7 @@ export default function Routings() {
         }
       } catch (requestError) {
         setError(
-          requestError?.response?.data?.detail || "Failed to load routings."
+          requestError?.response?.data?.detail || "工艺路线加载失败。"
         );
       }
     };
@@ -91,7 +91,7 @@ export default function Routings() {
         });
       } catch (requestError) {
         setError(
-          requestError?.response?.data?.detail || "Failed to load operations."
+          requestError?.response?.data?.detail || "工序加载失败。"
         );
       }
     };
@@ -101,7 +101,7 @@ export default function Routings() {
 
   const handleCreateRouting = async () => {
     if (!selectedOrderId || !routingName) {
-      setError("Please select an order and enter a routing name.");
+      setError("请先选择订单并输入工艺路线名称。");
       return;
     }
 
@@ -118,10 +118,10 @@ export default function Routings() {
       setRoutings(routingData);
       setSelectedRoutingId(String(routing.id));
       setRoutingName("");
-      setMessage("Routing created successfully.");
+      setMessage("工艺路线新增成功。");
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "Failed to create routing."
+        requestError?.response?.data?.detail || "工艺路线新增失败。"
       );
     } finally {
       setLoading(false);
@@ -130,7 +130,7 @@ export default function Routings() {
 
   const handleCreateOperation = async () => {
     if (!selectedRoutingId) {
-      setError("Please select a routing first.");
+      setError("请先选择工艺路线。");
       return;
     }
 
@@ -161,10 +161,10 @@ export default function Routings() {
         process_time: 1,
         setup_time: 0
       });
-      setMessage("Operation created successfully.");
+      setMessage("工序新增成功。");
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "Failed to create operation."
+        requestError?.response?.data?.detail || "工序新增失败。"
       );
     } finally {
       setLoading(false);
@@ -173,9 +173,9 @@ export default function Routings() {
 
   return (
     <section style={{ display: "grid", gap: "16px" }}>
-      <h1>Routings</h1>
+      <h1>工艺路线管理</h1>
       <p style={{ color: "#667085" }}>
-        Select an order, create a routing, and then add operations to that routing.
+        先选择订单并创建工艺路线，再为该工艺路线逐步新增工序。
       </p>
       {message ? <div style={successStyle}>{message}</div> : null}
       {error ? <div style={errorStyle}>{error}</div> : null}
