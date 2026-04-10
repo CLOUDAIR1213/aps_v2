@@ -3,10 +3,11 @@ export default function ScheduleTable({ items = [] }) {
     return (
       <div
         style={{
-          padding: "20px",
-          border: "1px solid #d7dbe2",
-          borderRadius: "12px",
-          backgroundColor: "#fafbfc"
+          padding: "24px",
+          border: "1px solid rgba(20, 33, 29, 0.08)",
+          borderRadius: "22px",
+          backgroundColor: "#f7f9f8",
+          color: "#5e6d66"
         }}
       >
         暂无排产结果。
@@ -21,24 +22,29 @@ export default function ScheduleTable({ items = [] }) {
           width: "100%",
           borderCollapse: "collapse",
           backgroundColor: "#ffffff",
-          border: "1px solid #d7dbe2",
-          borderRadius: "12px",
+          border: "1px solid rgba(20, 33, 29, 0.08)",
+          borderRadius: "24px",
           overflow: "hidden"
         }}
       >
-        <thead style={{ backgroundColor: "#f3f5f7" }}>
+        <thead style={{ backgroundColor: "#f2f5f3" }}>
           <tr>
-            <th style={cellStyle}>订单号</th>
-            <th style={cellStyle}>任务名称</th>
-            <th style={cellStyle}>设备</th>
-            <th style={cellStyle}>开始时间</th>
-            <th style={cellStyle}>结束时间</th>
-            <th style={cellStyle}>设备顺序号</th>
+            <th style={headCellStyle}>订单号</th>
+            <th style={headCellStyle}>任务名称</th>
+            <th style={headCellStyle}>设备</th>
+            <th style={headCellStyle}>开始时间</th>
+            <th style={headCellStyle}>结束时间</th>
+            <th style={headCellStyle}>设备顺序号</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => (
-            <tr key={item.id}>
+          {items.map((item, index) => (
+            <tr
+              key={item.id}
+              style={{
+                backgroundColor: index % 2 === 0 ? "#ffffff" : "#fbfcfb"
+              }}
+            >
               <td style={cellStyle}>{item.order_no || "-"}</td>
               <td style={cellStyle}>{item.task_name || "-"}</td>
               <td style={cellStyle}>{item.machine_name || item.machine_code || "-"}</td>
@@ -53,9 +59,18 @@ export default function ScheduleTable({ items = [] }) {
   );
 }
 
+const headCellStyle = {
+  borderBottom: "1px solid #e8eeea",
+  padding: "14px 16px",
+  textAlign: "left",
+  fontSize: "13px",
+  color: "#52615a",
+  fontWeight: 600
+};
+
 const cellStyle = {
-  borderBottom: "1px solid #e6eaf0",
-  padding: "12px",
+  borderBottom: "1px solid #edf1ee",
+  padding: "14px 16px",
   textAlign: "left",
   fontSize: "14px"
 };

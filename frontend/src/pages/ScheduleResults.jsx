@@ -49,14 +49,16 @@ export default function ScheduleResults() {
 
   if (!result?.schedule) {
     return (
-      <section style={{ display: "grid", gap: "16px" }}>
-        <h1>排产结果</h1>
+      <section style={{ display: "grid", gap: "20px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", letterSpacing: "-0.03em" }}>
+          排产结果
+        </h1>
         <div
           style={{
-            padding: "20px",
-            border: "1px solid #d7dbe2",
-            borderRadius: "12px",
-            backgroundColor: "#fafbfc"
+            padding: "22px",
+            border: "1px solid rgba(20, 33, 29, 0.08)",
+            borderRadius: "22px",
+            backgroundColor: "#f7f9f8"
           }}
         >
           暂无排产结果。
@@ -68,17 +70,21 @@ export default function ScheduleResults() {
   const { schedule, items } = result;
 
   return (
-    <section style={{ display: "grid", gap: "18px" }}>
-      <div>
-        <h1>排产结果</h1>
-        <p style={{ color: "#667085" }}>展示最新一次排产方案及其明细。</p>
+    <section style={{ display: "grid", gap: "22px" }}>
+      <div style={{ display: "grid", gap: "8px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", letterSpacing: "-0.03em" }}>
+          排产结果
+        </h1>
+        <p style={{ color: "#5e6d66", margin: 0, lineHeight: 1.7 }}>
+          展示最新一次排产方案及其明细。
+        </p>
       </div>
 
       <div
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: "12px"
+          gap: "14px"
         }}
       >
         <InfoCard label="方案编号" value={schedule.schedule_no} />
@@ -99,16 +105,20 @@ function InfoCard({ label, value }) {
   return (
     <div
       style={{
-        padding: "16px",
-        border: "1px solid #d7dbe2",
-        borderRadius: "12px",
-        backgroundColor: "#ffffff"
+        padding: "20px",
+        border: "1px solid rgba(20, 33, 29, 0.08)",
+        borderRadius: "22px",
+        background:
+          "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(249,251,250,0.92) 100%)",
+        boxShadow: "0 16px 34px rgba(20, 33, 29, 0.05)"
       }}
     >
-      <div style={{ color: "#667085", fontSize: "13px", marginBottom: "6px" }}>
+      <div style={{ color: "#667085", fontSize: "13px", marginBottom: "8px" }}>
         {label}
       </div>
-      <div style={{ fontWeight: 600, lineHeight: 1.5 }}>{value || "-"}</div>
+      <div style={{ fontWeight: 600, lineHeight: 1.5, fontSize: "18px" }}>
+        {value || "-"}
+      </div>
     </div>
   );
 }

@@ -52,10 +52,12 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <section style={{ display: "grid", gap: "20px" }}>
-      <div>
-        <h1 style={{ marginBottom: "8px" }}>首页看板</h1>
-        <p style={{ color: "#667085", margin: 0 }}>
+    <section style={{ display: "grid", gap: "24px" }}>
+      <div style={{ display: "grid", gap: "8px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", letterSpacing: "-0.03em" }}>
+          首页看板
+        </h1>
+        <p style={{ color: "#5e6d66", margin: 0, lineHeight: 1.7, maxWidth: "640px" }}>
           展示系统核心数据与最近一次排产方案。
         </p>
       </div>
@@ -67,7 +69,14 @@ export default function Dashboard() {
       )}
 
       <div style={panelStyle}>
-        <h2 style={{ marginTop: 0, marginBottom: "12px", fontSize: "20px" }}>
+        <h2
+          style={{
+            marginTop: 0,
+            marginBottom: "16px",
+            fontSize: "20px",
+            letterSpacing: "-0.02em"
+          }}
+        >
           最近一次排产方案
         </h2>
         {loading ? <p style={{ margin: 0 }}>加载中...</p> : null}
@@ -99,17 +108,18 @@ export default function Dashboard() {
 }
 
 const panelStyle = {
-  padding: "18px",
-  border: "1px solid #d7dbe2",
-  borderRadius: "14px",
-  backgroundColor: "#ffffff",
-  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)"
+  padding: "24px",
+  border: "1px solid rgba(20, 33, 29, 0.08)",
+  borderRadius: "24px",
+  background:
+    "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(249,251,250,0.92) 100%)",
+  boxShadow: "0 18px 40px rgba(20, 33, 29, 0.06)"
 };
 
 const errorStyle = {
-  padding: "14px 16px",
-  borderRadius: "12px",
-  backgroundColor: "#fef3f2",
-  border: "1px solid #fecdca",
+  padding: "16px 18px",
+  borderRadius: "18px",
+  backgroundColor: "#fff4f2",
+  border: "1px solid #f3c7c0",
   color: "#b42318"
 };

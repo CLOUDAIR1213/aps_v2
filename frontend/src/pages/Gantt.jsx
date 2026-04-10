@@ -33,9 +33,15 @@ export default function Gantt() {
   }, []);
 
   return (
-    <section style={{ display: "grid", gap: "16px" }}>
-      <h1>甘特图</h1>
-      <p style={{ color: "#667085" }}>按设备分组展示最新排产方案。</p>
+    <section style={{ display: "grid", gap: "22px" }}>
+      <div style={{ display: "grid", gap: "8px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", letterSpacing: "-0.03em" }}>
+          甘特图
+        </h1>
+        <p style={{ color: "#5e6d66", margin: 0, lineHeight: 1.7 }}>
+          按设备分组展示最新排产方案。
+        </p>
+      </div>
       {loading ? <p>加载中...</p> : null}
       {error ? <p>{error}</p> : null}
       {!loading && !error ? <GanttChart data={data} /> : null}

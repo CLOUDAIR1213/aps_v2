@@ -54,10 +54,12 @@ export default function Scheduling() {
   };
 
   return (
-    <section style={{ display: "grid", gap: "16px", maxWidth: "900px" }}>
-      <div>
-        <h1>排产管理</h1>
-        <p style={{ color: "#667085", lineHeight: 1.6 }}>
+    <section style={{ display: "grid", gap: "22px", maxWidth: "920px" }}>
+      <div style={{ display: "grid", gap: "8px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", letterSpacing: "-0.03em" }}>
+          排产管理
+        </h1>
+        <p style={{ color: "#5e6d66", lineHeight: 1.7, margin: 0 }}>
           先生成待排产任务，再执行一键排产。完成后可在结果页和甘特图页面查看最新方案。
         </p>
       </div>
@@ -65,7 +67,7 @@ export default function Scheduling() {
       <div
         style={{
           display: "flex",
-          gap: "12px",
+          gap: "14px",
           flexWrap: "wrap"
         }}
       >
@@ -116,43 +118,49 @@ export default function Scheduling() {
 
 const primaryButtonStyle = {
   border: "none",
-  borderRadius: "10px",
-  padding: "10px 18px",
-  backgroundColor: "#0f766e",
+  borderRadius: "16px",
+  padding: "12px 20px",
+  background: "linear-gradient(135deg, #1f5f52 0%, #2f7a6b 100%)",
   color: "#ffffff",
   cursor: "pointer",
-  fontSize: "14px"
+  fontSize: "14px",
+  fontWeight: 600,
+  boxShadow: "0 14px 26px rgba(31, 95, 82, 0.18)"
 };
 
 const secondaryButtonStyle = {
   border: "none",
-  borderRadius: "10px",
-  padding: "10px 18px",
-  backgroundColor: "#1d4ed8",
+  borderRadius: "16px",
+  padding: "12px 20px",
+  background: "linear-gradient(135deg, #295f8f 0%, #3772a8 100%)",
   color: "#ffffff",
   cursor: "pointer",
-  fontSize: "14px"
+  fontSize: "14px",
+  fontWeight: 600,
+  boxShadow: "0 14px 26px rgba(41, 95, 143, 0.18)"
 };
 
 const infoCardStyle = {
-  padding: "16px",
-  borderRadius: "12px",
-  border: "1px solid #d7dbe2",
-  backgroundColor: "#ffffff"
+  padding: "20px",
+  borderRadius: "22px",
+  border: "1px solid rgba(20, 33, 29, 0.08)",
+  background:
+    "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(249,251,250,0.92) 100%)",
+  boxShadow: "0 18px 40px rgba(20, 33, 29, 0.05)"
 };
 
 const successStyle = {
   padding: "14px 16px",
-  borderRadius: "12px",
-  backgroundColor: "#ecfdf3",
-  border: "1px solid #abefc6",
-  color: "#027a48"
+  borderRadius: "18px",
+  backgroundColor: "#eef9f2",
+  border: "1px solid #bfe4cb",
+  color: "#1f6b45"
 };
 
 const errorStyle = {
   padding: "14px 16px",
-  borderRadius: "12px",
-  backgroundColor: "#fef3f2",
-  border: "1px solid #fecdca",
+  borderRadius: "18px",
+  backgroundColor: "#fff4f2",
+  border: "1px solid #f3c7c0",
   color: "#b42318"
 };

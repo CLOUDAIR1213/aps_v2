@@ -70,8 +70,15 @@ export default function Orders() {
   };
 
   return (
-    <section style={{ display: "grid", gap: "16px" }}>
-      <h1>订单管理</h1>
+    <section style={{ display: "grid", gap: "22px" }}>
+      <div style={{ display: "grid", gap: "8px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", letterSpacing: "-0.03em" }}>
+          订单管理
+        </h1>
+        <p style={{ margin: 0, color: "#5e6d66", lineHeight: 1.7 }}>
+          管理订单基础信息、优先级与交付时间。
+        </p>
+      </div>
       <form onSubmit={handleSubmit} style={cardStyle}>
         <div style={gridStyle}>
           <input
@@ -125,46 +132,54 @@ export default function Orders() {
 }
 
 const cardStyle = {
-  border: "1px solid #d7dbe2",
-  borderRadius: "12px",
-  padding: "16px",
-  backgroundColor: "#ffffff"
+  border: "1px solid rgba(20, 33, 29, 0.08)",
+  borderRadius: "24px",
+  padding: "22px",
+  background:
+    "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(249,251,250,0.92) 100%)",
+  boxShadow: "0 18px 40px rgba(20, 33, 29, 0.05)"
 };
 
 const gridStyle = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: "12px",
-  marginBottom: "12px"
+  gap: "14px",
+  marginBottom: "16px"
 };
 
 const inputStyle = {
-  padding: "10px 12px",
-  borderRadius: "8px",
-  border: "1px solid #d0d5dd"
+  padding: "13px 14px",
+  borderRadius: "16px",
+  border: "1px solid #d3ddd7",
+  backgroundColor: "#f8faf9",
+  color: "#14211d",
+  outline: "none"
 };
 
 const buttonStyle = {
   border: "none",
-  borderRadius: "10px",
-  padding: "10px 16px",
-  backgroundColor: "#1d4ed8",
+  borderRadius: "16px",
+  padding: "12px 18px",
+  background:
+    "linear-gradient(135deg, #1f5f52 0%, #2f7a6b 100%)",
   color: "#ffffff",
-  cursor: "pointer"
+  cursor: "pointer",
+  fontWeight: 600,
+  boxShadow: "0 14px 26px rgba(31, 95, 82, 0.18)"
 };
 
 const successStyle = {
-  padding: "12px 14px",
-  borderRadius: "12px",
-  backgroundColor: "#ecfdf3",
-  border: "1px solid #abefc6",
-  color: "#027a48"
+  padding: "14px 16px",
+  borderRadius: "18px",
+  backgroundColor: "#eef9f2",
+  border: "1px solid #bfe4cb",
+  color: "#1f6b45"
 };
 
 const errorStyle = {
-  padding: "12px 14px",
-  borderRadius: "12px",
-  backgroundColor: "#fef3f2",
-  border: "1px solid #fecdca",
+  padding: "14px 16px",
+  borderRadius: "18px",
+  backgroundColor: "#fff4f2",
+  border: "1px solid #f3c7c0",
   color: "#b42318"
 };

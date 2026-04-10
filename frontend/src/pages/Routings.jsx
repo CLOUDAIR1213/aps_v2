@@ -172,11 +172,15 @@ export default function Routings() {
   };
 
   return (
-    <section style={{ display: "grid", gap: "16px" }}>
-      <h1>工艺路线管理</h1>
-      <p style={{ color: "#667085" }}>
-        先选择订单并创建工艺路线，再为该工艺路线逐步新增工序。
-      </p>
+    <section style={{ display: "grid", gap: "22px" }}>
+      <div style={{ display: "grid", gap: "8px" }}>
+        <h1 style={{ margin: 0, fontSize: "30px", letterSpacing: "-0.03em" }}>
+          工艺路线
+        </h1>
+        <p style={{ color: "#5e6d66", margin: 0, lineHeight: 1.7 }}>
+          先选择订单并创建工艺路线，再为该工艺路线逐步新增工序。
+        </p>
+      </div>
       {message ? <div style={successStyle}>{message}</div> : null}
       {error ? <div style={errorStyle}>{error}</div> : null}
       <RoutingForm
@@ -203,17 +207,17 @@ export default function Routings() {
 }
 
 const successStyle = {
-  padding: "12px 14px",
-  borderRadius: "12px",
-  backgroundColor: "#ecfdf3",
-  border: "1px solid #abefc6",
-  color: "#027a48"
+  padding: "14px 16px",
+  borderRadius: "18px",
+  backgroundColor: "#eef9f2",
+  border: "1px solid #bfe4cb",
+  color: "#1f6b45"
 };
 
 const errorStyle = {
-  padding: "12px 14px",
-  borderRadius: "12px",
-  backgroundColor: "#fef3f2",
-  border: "1px solid #fecdca",
+  padding: "14px 16px",
+  borderRadius: "18px",
+  backgroundColor: "#fff4f2",
+  border: "1px solid #f3c7c0",
   color: "#b42318"
 };
