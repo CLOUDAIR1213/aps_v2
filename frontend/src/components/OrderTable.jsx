@@ -1,3 +1,10 @@
+const orderStatusMap = {
+  pending: "待排产",
+  scheduled: "已排产",
+  completed: "已完成",
+  cancelled: "已取消"
+};
+
 export default function OrderTable({ orders = [] }) {
   if (orders.length === 0) {
     return <p>暂无订单数据。</p>;
@@ -7,7 +14,7 @@ export default function OrderTable({ orders = [] }) {
     <table style={{ width: "100%", borderCollapse: "collapse" }}>
       <thead>
         <tr>
-          <th style={cellStyle}>ID</th>
+          <th style={cellStyle}>编号</th>
           <th style={cellStyle}>订单号</th>
           <th style={cellStyle}>产品名称</th>
           <th style={cellStyle}>数量</th>
@@ -25,7 +32,7 @@ export default function OrderTable({ orders = [] }) {
             <td style={cellStyle}>{order.quantity}</td>
             <td style={cellStyle}>{order.priority}</td>
             <td style={cellStyle}>{order.due_date}</td>
-            <td style={cellStyle}>{order.status}</td>
+            <td style={cellStyle}>{orderStatusMap[order.status] || order.status}</td>
           </tr>
         ))}
       </tbody>

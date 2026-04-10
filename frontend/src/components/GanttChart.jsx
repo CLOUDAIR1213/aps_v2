@@ -38,7 +38,7 @@ export default function GanttChart({ data = [] }) {
           <div style={{ marginBottom: "12px" }}>
             <strong>{machine.machine_name || machine.machine_code}</strong>
             <div style={{ color: "#667085", fontSize: "13px" }}>
-              {machine.machine_code || "未配置机器编码"}
+              {machine.machine_code || "未配置设备编码"}
             </div>
           </div>
 

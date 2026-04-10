@@ -29,11 +29,11 @@ export default function ScheduleTable({ items = [] }) {
         <thead style={{ backgroundColor: "#f3f5f7" }}>
           <tr>
             <th style={cellStyle}>订单号</th>
-            <th style={cellStyle}>任务名</th>
-            <th style={cellStyle}>机器</th>
+            <th style={cellStyle}>任务名称</th>
+            <th style={cellStyle}>设备</th>
             <th style={cellStyle}>开始时间</th>
             <th style={cellStyle}>结束时间</th>
-            <th style={cellStyle}>机器内顺序号</th>
+            <th style={cellStyle}>设备顺序号</th>
           </tr>
         </thead>
         <tbody>

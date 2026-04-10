@@ -25,7 +25,7 @@ export default function Machines() {
       setError("");
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "机器数据加载失败。"
+        requestError?.response?.data?.detail || "设备数据加载失败。"
       );
     } finally {
       setLoading(false);
@@ -54,11 +54,11 @@ export default function Machines() {
         status: "idle",
         capacity_per_day: 480
       });
-      setMessage("机器新增成功。");
+      setMessage("设备新增成功。");
       await loadMachines();
     } catch (requestError) {
       setError(
-        requestError?.response?.data?.detail || "机器新增失败。"
+        requestError?.response?.data?.detail || "设备新增失败。"
       );
     } finally {
       setSubmitting(false);
@@ -67,18 +67,18 @@ export default function Machines() {
 
   return (
     <section style={{ display: "grid", gap: "16px" }}>
-      <h1>机器管理</h1>
+      <h1>设备管理</h1>
       <form onSubmit={handleSubmit} style={cardStyle}>
         <div style={gridStyle}>
           <input
-            placeholder="机器编码"
+            placeholder="设备编码"
             value={form.code}
             onChange={(event) => setForm({ ...form, code: event.target.value })}
             style={inputStyle}
             required
           />
           <input
-            placeholder="机器名称"
+            placeholder="设备名称"
             value={form.name}
             onChange={(event) => setForm({ ...form, name: event.target.value })}
             style={inputStyle}
@@ -103,7 +103,7 @@ export default function Machines() {
           />
         </div>
         <button type="submit" disabled={submitting} style={buttonStyle}>
-          {submitting ? "提交中..." : "新增机器"}
+          {submitting ? "提交中..." : "新增设备"}
         </button>
       </form>
       {message ? <div style={successStyle}>{message}</div> : null}

@@ -1,12 +1,12 @@
 import { Link, Outlet } from "react-router-dom";
 
 const navItems = [
-  { to: "/", label: "首页" },
-  { to: "/scheduling", label: "排产" },
-  { to: "/schedule-results", label: "结果" },
+  { to: "/", label: "首页看板" },
+  { to: "/scheduling", label: "排产管理" },
+  { to: "/schedule-results", label: "排产结果" },
   { to: "/gantt", label: "甘特图" },
-  { to: "/machines", label: "机器" },
-  { to: "/orders", label: "订单" },
+  { to: "/machines", label: "设备管理" },
+  { to: "/orders", label: "订单管理" },
   { to: "/routings", label: "工艺路线" }
 ];
 
@@ -23,9 +23,9 @@ export default function App() {
       }}
     >
       <header style={{ marginBottom: "24px" }}>
-        <h1 style={{ marginBottom: "8px" }}>APS 演示系统</h1>
+        <h1 style={{ marginBottom: "8px" }}>APS 排产演示系统</h1>
         <p style={{ margin: 0, color: "#667085" }}>
-          面向机械加工场景的轻量 APS 排产演示系统。
+          面向机械加工场景的轻量 APS 排产演示平台。
         </p>
       </header>
       <nav

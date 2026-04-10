@@ -56,9 +56,9 @@ export default function Scheduling() {
   return (
     <section style={{ display: "grid", gap: "16px", maxWidth: "900px" }}>
       <div>
-        <h1>排产执行</h1>
+        <h1>排产管理</h1>
         <p style={{ color: "#667085", lineHeight: 1.6 }}>
-          先生成待排产任务，再执行规则排产。排产成功后可前往结果页和甘特图页查看最新方案。
+          先生成待排产任务，再执行一键排产。完成后可在结果页和甘特图页面查看最新方案。
         </p>
       </div>
 
@@ -89,7 +89,7 @@ export default function Scheduling() {
       </div>
 
       {taskCount !== null ? (
-        <div style={infoCardStyle}>最近一次生成任务数量：{taskCount}</div>
+        <div style={infoCardStyle}>最近一次任务生成数量：{taskCount}</div>
       ) : null}
 
       {message ? <div style={successStyle}>{message}</div> : null}
@@ -98,7 +98,7 @@ export default function Scheduling() {
       <div style={infoCardStyle}>
         <div style={{ fontWeight: 600, marginBottom: "8px" }}>操作说明</div>
         <div style={{ color: "#475467", lineHeight: 1.7 }}>
-          1. 点击“生成任务”，从待排产订单和工艺路线展开生成 `schedule_tasks`。
+          1. 点击“生成任务”，根据待排产订单和工艺路线生成待排产任务。
           <br />
           2. 点击“一键排产”，执行规则排产并生成最新排产方案。
           <br />

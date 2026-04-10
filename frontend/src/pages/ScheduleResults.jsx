@@ -3,6 +3,13 @@ import { useEffect, useState } from "react";
 import { getLatestSchedulingResult } from "../api/scheduling";
 import ScheduleTable from "../components/ScheduleTable";
 
+const scheduleStatusMap = {
+  draft: "草稿",
+  running: "排产中",
+  completed: "已完成",
+  failed: "失败"
+};
+
 export default function ScheduleResults() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -50,8 +57,8 @@ export default function ScheduleResults() {
             border: "1px solid #d7dbe2",
             borderRadius: "12px",
             backgroundColor: "#fafbfc"
-        }}
-      >
+          }}
+        >
           暂无排产结果。
         </div>
       </section>
@@ -76,7 +83,10 @@ export default function ScheduleResults() {
       >
         <InfoCard label="方案编号" value={schedule.schedule_no} />
         <InfoCard label="方案名称" value={schedule.name} />
-        <InfoCard label="状态" value={schedule.status} />
+        <InfoCard
+          label="状态"
+          value={scheduleStatusMap[schedule.status] || schedule.status}
+        />
         <InfoCard label="创建时间" value={schedule.created_at} />
       </div>
 

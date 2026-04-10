@@ -4,6 +4,13 @@ import { getDashboardSummary } from "../api/dashboard";
 import { getLatestSchedulingResult } from "../api/scheduling";
 import SummaryCards from "../components/SummaryCards";
 
+const scheduleStatusMap = {
+  draft: "草稿",
+  running: "排产中",
+  completed: "已完成",
+  failed: "失败"
+};
+
 export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const [latestSchedule, setLatestSchedule] = useState(null);
@@ -34,7 +41,7 @@ export default function Dashboard() {
         }
       } catch (requestError) {
         setError(
-          requestError?.response?.data?.detail || "Failed to load dashboard summary."
+          requestError?.response?.data?.detail || "首页数据加载失败。"
         );
       } finally {
         setLoading(false);
@@ -47,9 +54,9 @@ export default function Dashboard() {
   return (
     <section style={{ display: "grid", gap: "20px" }}>
       <div>
-        <h1 style={{ marginBottom: "8px" }}>系统看板</h1>
+        <h1 style={{ marginBottom: "8px" }}>首页看板</h1>
         <p style={{ color: "#667085", margin: 0 }}>
-          机械加工行业轻量 APS 排产系统概览。
+          展示系统核心数据与最近一次排产方案。
         </p>
       </div>
 
@@ -73,7 +80,8 @@ export default function Dashboard() {
               <strong>方案名称：</strong> {latestSchedule.name}
             </div>
             <div>
-              <strong>状态：</strong> {latestSchedule.status}
+              <strong>状态：</strong>{" "}
+              {scheduleStatusMap[latestSchedule.status] || latestSchedule.status}
             </div>
             <div>
               <strong>创建时间：</strong> {latestSchedule.created_at}

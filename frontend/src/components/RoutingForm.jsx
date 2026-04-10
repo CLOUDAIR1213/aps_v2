@@ -92,13 +92,13 @@ export default function RoutingForm({
           </label>
 
           <label style={labelStyle}>
-            <span>机器</span>
+            <span>设备</span>
             <select
               value={operationForm.machine_id}
               onChange={(event) => onOperationFormChange("machine_id", event.target.value)}
               style={inputStyle}
             >
-              <option value="">请选择机器</option>
+              <option value="">请选择设备</option>
               {machines.map((machine) => (
                 <option key={machine.id} value={machine.id}>
                   {machine.code} / {machine.name}
@@ -142,7 +142,7 @@ export default function RoutingForm({
           <div key={routing.id} style={{ marginBottom: "14px" }}>
             <div style={{ fontWeight: 600 }}>{routing.name}</div>
             <div style={{ color: "#667085", fontSize: "13px", marginBottom: "8px" }}>
-              工艺路线 ID：{routing.id}
+              工艺路线编号：{routing.id}
             </div>
             <div style={{ display: "grid", gap: "8px" }}>
               {operations
@@ -157,7 +157,7 @@ export default function RoutingForm({
                       fontSize: "14px"
                     }}
                   >
-                    顺序 {operation.seq_no} / {operation.operation_name} / 机器 {operation.machine_id}
+                    顺序 {operation.seq_no} / {operation.operation_name} / 设备 {operation.machine_id}
                   </div>
                 ))}
             </div>
