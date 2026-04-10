@@ -1,0 +1,70 @@
+import { Link, Outlet } from "react-router-dom";
+
+const navItems = [
+  { to: "/", label: "Home" },
+  { to: "/scheduling", label: "Scheduling" },
+  { to: "/schedule-results", label: "Results" },
+  { to: "/gantt", label: "Gantt" },
+  { to: "/machines", label: "Machines" },
+  { to: "/orders", label: "Orders" },
+  { to: "/routings", label: "Routings" }
+];
+
+export default function App() {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: "24px",
+        fontFamily: "Segoe UI, Arial, sans-serif",
+        background:
+          "linear-gradient(180deg, #f8fbff 0%, #f4f7fb 45%, #eef2f7 100%)",
+        color: "#101828"
+      }}
+    >
+      <header style={{ marginBottom: "24px" }}>
+        <h1 style={{ marginBottom: "8px" }}>APS Demo</h1>
+        <p style={{ margin: 0, color: "#667085" }}>
+          Lightweight scheduling demo for machining workshops.
+        </p>
+      </header>
+      <nav
+        style={{
+          display: "flex",
+          gap: "12px",
+          marginBottom: "24px",
+          flexWrap: "wrap"
+        }}
+      >
+        {navItems.map((item) => (
+          <Link
+            key={item.to}
+            to={item.to}
+            style={{
+              padding: "10px 14px",
+              borderRadius: "999px",
+              backgroundColor: "#ffffff",
+              border: "1px solid #d7dbe2",
+              color: "#0f172a",
+              textDecoration: "none",
+              boxShadow: "0 6px 20px rgba(15, 23, 42, 0.04)"
+            }}
+          >
+            {item.label}
+          </Link>
+        ))}
+      </nav>
+      <main
+        style={{
+          padding: "24px",
+          borderRadius: "20px",
+          backgroundColor: "rgba(255, 255, 255, 0.88)",
+          border: "1px solid #e5e7eb",
+          boxShadow: "0 18px 50px rgba(15, 23, 42, 0.06)"
+        }}
+      >
+        <Outlet />
+      </main>
+    </div>
+  );
+}
