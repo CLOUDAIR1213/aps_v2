@@ -5,6 +5,11 @@ export const generateTasks = async () => {
   return response.data;
 };
 
+export const getScheduleTasks = async () => {
+  const response = await apiClient.get("/api/scheduling/tasks");
+  return response.data;
+};
+
 export const runScheduling = async () => {
   const response = await apiClient.post("/api/scheduling/run");
   return response.data;

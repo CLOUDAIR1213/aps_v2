@@ -1,56 +1,80 @@
+import StatusBadge from "./StatusBadge";
+import { formatDateTime, formatHours, getDurationHours } from "../utils/formatters";
+
 export default function ScheduleTable({ items = [] }) {
   if (items.length === 0) {
     return (
-      <div
-        style={{
-          padding: "24px",
-          border: "1px solid rgba(20, 33, 29, 0.08)",
-          borderRadius: "22px",
-          backgroundColor: "#f7f9f8",
-          color: "#5e6d66"
-        }}
-      >
-        暂无排产结果。
+      <div className="empty-state">
+        <h3 className="empty-state-title">
+          {"\u6682\u65e0\u6392\u4ea7\u7ed3\u679c"}
+        </h3>
+        <p className="empty-state-copy">
+          {"\u8bf7\u5148\u5728\u6392\u4ea7\u9a7e\u9a76\u53f0\u751f\u6210\u4efb\u52a1\u5e76\u6267\u884c\u6392\u4ea7\u3002"}
+        </p>
       </div>
     );
   }
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          backgroundColor: "#ffffff",
-          border: "1px solid rgba(20, 33, 29, 0.08)",
-          borderRadius: "24px",
-          overflow: "hidden"
-        }}
-      >
-        <thead style={{ backgroundColor: "#f2f5f3" }}>
+    <div className="table-shell">
+      <table className="data-table">
+        <thead>
           <tr>
-            <th style={headCellStyle}>订单号</th>
-            <th style={headCellStyle}>任务名称</th>
-            <th style={headCellStyle}>设备</th>
-            <th style={headCellStyle}>开始时间</th>
-            <th style={headCellStyle}>结束时间</th>
-            <th style={headCellStyle}>设备顺序号</th>
+            <th>{"\u8ba2\u5355 / \u4ea7\u54c1"}</th>
+            <th>{"\u5de5\u5e8f"}</th>
+            <th>{"\u8bbe\u5907"}</th>
+            <th>{"\u65f6\u95f4\u7a97"}</th>
+            <th>{"\u8d1f\u8377"}</th>
+            <th>{"\u987a\u5e8f"}</th>
+            <th>{"\u4ea4\u671f"}</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((item, index) => (
-            <tr
-              key={item.id}
-              style={{
-                backgroundColor: index % 2 === 0 ? "#ffffff" : "#fbfcfb"
-              }}
-            >
-              <td style={cellStyle}>{item.order_no || "-"}</td>
-              <td style={cellStyle}>{item.task_name || "-"}</td>
-              <td style={cellStyle}>{item.machine_name || item.machine_code || "-"}</td>
-              <td style={cellStyle}>{item.start_time}</td>
-              <td style={cellStyle}>{item.end_time}</td>
-              <td style={cellStyle}>{item.sequence_on_machine}</td>
+          {items.map((item) => (
+            <tr key={item.id}>
+              <td>
+                <p className="data-primary">{item.order_no || "--"}</p>
+                <p className="data-secondary">{item.product_name || "--"}</p>
+              </td>
+              <td>
+                <p className="data-primary">{item.task_name || "--"}</p>
+                <p className="data-secondary">
+                  {item.machine_code ? `${item.machine_code} / ` : ""}
+                  {item.sequence_on_machine
+                    ? `Seq ${item.sequence_on_machine}`
+                    : "--"}
+                </p>
+              </td>
+              <td>
+                <p className="data-primary">
+                  {item.machine_name || item.machine_code || "--"}
+                </p>
+                <p className="data-secondary">{item.machine_code || "--"}</p>
+              </td>
+              <td>
+                <p className="data-primary">{formatDateTime(item.start_time)}</p>
+                <p className="data-secondary">{formatDateTime(item.end_time)}</p>
+              </td>
+              <td>
+                <p className="data-primary">
+                  {formatHours(getDurationHours(item.start_time, item.end_time))}
+                </p>
+                <p className="data-secondary">
+                  {item.order_priority !== undefined
+                    ? `P${item.order_priority}`
+                    : "\u89c4\u5219\u6392\u4ea7"}
+                </p>
+              </td>
+              <td>
+                <StatusBadge tone="info">
+                  {`\u673a\u53f0\u987a\u5e8f ${item.sequence_on_machine ?? "--"}`}
+                </StatusBadge>
+              </td>
+              <td>
+                <StatusBadge tone={item.deadlineTone || "neutral"}>
+                  {item.dueDateLabel || "--"}
+                </StatusBadge>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -58,19 +82,3 @@ export default function ScheduleTable({ items = [] }) {
     </div>
   );
 }
-
-const headCellStyle = {
-  borderBottom: "1px solid #e8eeea",
-  padding: "14px 16px",
-  textAlign: "left",
-  fontSize: "13px",
-  color: "#52615a",
-  fontWeight: 600
-};
-
-const cellStyle = {
-  borderBottom: "1px solid #edf1ee",
-  padding: "14px 16px",
-  textAlign: "left",
-  fontSize: "14px"
-};

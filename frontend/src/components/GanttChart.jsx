@@ -1,136 +1,139 @@
+import {
+  formatClock,
+  formatDateTime,
+  formatHours,
+  formatPercent,
+  getDurationHours
+} from "../utils/formatters";
+
+const ganttColors = ["#205c52", "#2d5d8c", "#a26813", "#9a4f39", "#5f6bb0"];
+
 export default function GanttChart({ data = [] }) {
   if (data.length === 0) {
     return (
-      <div
-        style={{
-          padding: "24px",
-          border: "1px solid rgba(20, 33, 29, 0.08)",
-          borderRadius: "22px",
-          backgroundColor: "#f7f9f8",
-          color: "#5e6d66"
-        }}
-      >
-        暂无甘特图数据。
+      <div className="empty-state">
+        <h3 className="empty-state-title">
+          {"\u6682\u65e0\u7518\u7279\u56fe\u6570\u636e"}
+        </h3>
+        <p className="empty-state-copy">
+          {"\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u7684\u673a\u53f0\u6392\u4ea7\u7ed3\u679c\u3002"}
+        </p>
       </div>
     );
   }
 
   const allTasks = data.flatMap((machine) => machine.tasks);
-  const allTimes = allTasks.flatMap((task) => [
+  const timestamps = allTasks.flatMap((task) => [
     new Date(task.start_time).getTime(),
     new Date(task.end_time).getTime()
   ]);
-  const minTime = Math.min(...allTimes);
-  const maxTime = Math.max(...allTimes);
+  const minTime = Math.min(...timestamps);
+  const maxTime = Math.max(...timestamps);
   const totalDuration = Math.max(maxTime - minTime, 1);
-  const taskColors = ["#1f5f52", "#295f8f", "#7a6a26", "#7d557d"];
+  const tickCount = 7;
+  const horizonHours = Math.max(totalDuration / 3600000, 0.01);
+  const ticks = Array.from({ length: tickCount }, (_, index) => {
+    const point = minTime + (totalDuration / (tickCount - 1)) * index;
+    return {
+      label: formatDateTime(point),
+      offset: (index / (tickCount - 1)) * 100
+    };
+  });
 
   return (
-    <div style={{ display: "grid", gap: "16px" }}>
-      {data.map((machine, machineIndex) => (
-        <div
-          key={machine.machine_id}
-          style={{
-            border: "1px solid rgba(20, 33, 29, 0.08)",
-            borderRadius: "24px",
-            padding: "22px",
-            background:
-              "linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(249,251,250,0.92) 100%)",
-            boxShadow: "0 18px 36px rgba(20, 33, 29, 0.05)"
-          }}
-        >
-          <div style={{ marginBottom: "12px" }}>
-            <strong style={{ fontSize: "18px" }}>
-              {machine.machine_name || machine.machine_code}
-            </strong>
-            <div style={{ color: "#667085", fontSize: "13px", marginTop: "4px" }}>
-              {machine.machine_code || "未配置设备编码"}
+    <div className="table-shell" style={{ padding: "18px" }}>
+      <div className="timeline-shell" style={{ "--tick-count": tickCount }}>
+        <div className="timeline-scale">
+          {ticks.map((tick) => (
+            <div key={tick.label} className="timeline-scale-label">
+              {tick.label}
             </div>
-          </div>
-
-          <div
-            style={{
-              position: "relative",
-              height: "86px",
-              background:
-                "linear-gradient(to right, #f8faf9 0%, #f8faf9 50%, #eef2ef 50%, #eef2ef 100%)",
-              backgroundSize: "54px 100%",
-              borderRadius: "18px",
-              overflow: "hidden",
-              border: "1px solid #e5ece8"
-            }}
-          >
-            {machine.tasks.map((task, taskIndex) => {
-              const start = new Date(task.start_time).getTime();
-              const end = new Date(task.end_time).getTime();
-              const left = ((start - minTime) / totalDuration) * 100;
-              const width = Math.max(((end - start) / totalDuration) * 100, 8);
-              const color = taskColors[(machineIndex + taskIndex) % taskColors.length];
-
-              return (
-                <div
-                  key={task.schedule_item_id}
-                  title={`${task.order_no} ${task.task_name}`}
-                  style={{
-                    position: "absolute",
-                    left: `${left}%`,
-                    top: "16px",
-                    width: `${width}%`,
-                    minWidth: "90px",
-                    height: "52px",
-                    background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
-                    color: "#ffffff",
-                    borderRadius: "14px",
-                    padding: "8px 12px",
-                    boxSizing: "border-box",
-                    overflow: "hidden",
-                    boxShadow: "0 10px 24px rgba(20, 33, 29, 0.16)"
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 700,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis"
-                    }}
-                  >
-                    {task.order_no}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "11px",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis"
-                    }}
-                  >
-                    {task.task_name}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{ marginTop: "12px", display: "grid", gap: "8px" }}>
-            {machine.tasks.map((task) => (
-              <div
-                key={`${task.schedule_item_id}-meta`}
-                style={{
-                  fontSize: "13px",
-                  color: "#475467",
-                  padding: "10px 12px",
-                  backgroundColor: "#f8faf9",
-                  borderRadius: "14px"
-                }}
-              >
-                {task.order_no} / {task.task_name} / {task.start_time} 至 {task.end_time}
-              </div>
-            ))}
-          </div>
+          ))}
         </div>
-      ))}
+
+        {data.map((machine, machineIndex) => {
+          const machineHours = machine.tasks.reduce(
+            (sum, task) => sum + getDurationHours(task.start_time, task.end_time),
+            0
+          );
+
+          return (
+            <div key={machine.machine_id} className="machine-lane">
+              <div className="machine-meta">
+                <div>
+                  <h3 className="machine-name">
+                    {machine.machine_name || machine.machine_code || "--"}
+                  </h3>
+                  <p className="machine-code">{machine.machine_code || "--"}</p>
+                </div>
+                <p className="machine-stat">
+                  {`\u4efb\u52a1 ${machine.tasks.length} / \u5360\u7528 ${formatHours(machineHours)}`}
+                </p>
+                <p className="machine-stat">
+                  {`\u5229\u7528\u7387 ${formatPercent((machineHours / horizonHours) * 100)}`}
+                </p>
+              </div>
+
+              <div className="gantt-lane">
+                {ticks.slice(1, ticks.length - 1).map((tick) => (
+                  <span
+                    key={`${machine.machine_id}-${tick.offset}`}
+                    className="gantt-gridline"
+                    style={{ left: `${tick.offset}%` }}
+                  />
+                ))}
+
+                {machine.tasks.map((task, taskIndex) => {
+                  const start = new Date(task.start_time).getTime();
+                  const end = new Date(task.end_time).getTime();
+                  const left = ((start - minTime) / totalDuration) * 100;
+                  const width = Math.max(((end - start) / totalDuration) * 100, 8);
+                  const color = ganttColors[(machineIndex + taskIndex) % ganttColors.length];
+
+                  return (
+                    <div
+                      key={task.schedule_item_id}
+                      className="gantt-bar"
+                      title={`${task.order_no} ${task.task_name}`}
+                      style={{
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`
+                      }}
+                    >
+                      <p className="gantt-bar-title">{task.order_no}</p>
+                      <p className="gantt-bar-meta">
+                        {`${task.task_name} / ${formatClock(task.start_time)}-${formatClock(
+                          task.end_time
+                        )}`}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="legend-list">
+          {allTasks.map((task, index) => (
+            <div key={`${task.schedule_item_id}-legend`} className="legend-row">
+              <span
+                className="legend-color"
+                style={{ backgroundColor: ganttColors[index % ganttColors.length] }}
+              />
+              <div>
+                <div className="data-primary">
+                  {`${task.order_no} / ${task.task_name}`}
+                </div>
+                <div className="data-secondary">
+                  {`${formatDateTime(task.start_time)} - ${formatDateTime(task.end_time)}`}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
