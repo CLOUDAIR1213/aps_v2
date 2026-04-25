@@ -3,9 +3,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.dashboard import router as dashboard_router
 from app.api.machine import router as machine_router
 from app.api.order import router as order_router
+from app.api.production import router as production_router
 from app.api.routing import router as routing_router
 from app.api.routing_operation import router as routing_operation_router
 from app.api.scheduling import router as scheduling_router
@@ -37,6 +39,8 @@ app.include_router(routing_router)
 app.include_router(routing_operation_router)
 app.include_router(scheduling_router)
 app.include_router(dashboard_router)
+app.include_router(auth_router)
+app.include_router(production_router)
 
 
 @app.get("/")

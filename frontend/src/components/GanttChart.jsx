@@ -52,6 +52,8 @@ export default function GanttChart({ data = [] }) {
         </div>
 
         {data.map((machine, machineIndex) => {
+          const resourceName = machine.machine_name || machine.work_center_name || machine.machine_code || "--";
+          const resourceCode = machine.machine_code || (machine.is_external ? "外协" : "--");
           const machineHours = machine.tasks.reduce(
             (sum, task) => sum + getDurationHours(task.start_time, task.end_time),
             0
@@ -62,15 +64,15 @@ export default function GanttChart({ data = [] }) {
               <div className="machine-meta">
                 <div>
                   <h3 className="machine-name">
-                    {machine.machine_name || machine.machine_code || "--"}
+                    {resourceName}
                   </h3>
-                  <p className="machine-code">{machine.machine_code || "--"}</p>
+                  <p className="machine-code">{resourceCode}</p>
                 </div>
                 <p className="machine-stat">
-                  {`\u4efb\u52a1 ${machine.tasks.length} / \u5360\u7528 ${formatHours(machineHours)}`}
+                  {`任务 ${machine.tasks.length} / 占用 ${formatHours(machineHours)}`}
                 </p>
                 <p className="machine-stat">
-                  {`\u5229\u7528\u7387 ${formatPercent((machineHours / horizonHours) * 100)}`}
+                  {`利用率 ${formatPercent((machineHours / horizonHours) * 100)}`}
                 </p>
               </div>
 
@@ -101,7 +103,7 @@ export default function GanttChart({ data = [] }) {
                         background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`
                       }}
                     >
-                      <p className="gantt-bar-title">{task.order_no}</p>
+                      <p className="gantt-bar-title">{`${task.order_no} / ${task.drawing_no || ""}`}</p>
                       <p className="gantt-bar-meta">
                         {`${task.task_name} / ${formatClock(task.start_time)}-${formatClock(
                           task.end_time
@@ -124,7 +126,7 @@ export default function GanttChart({ data = [] }) {
               />
               <div>
                 <div className="data-primary">
-                  {`${task.order_no} / ${task.task_name}`}
+                  {`${task.order_no} / ${task.drawing_no || task.part_no || ""} / ${task.task_name}`}
                 </div>
                 <div className="data-secondary">
                   {`${formatDateTime(task.start_time)} - ${formatDateTime(task.end_time)}`}

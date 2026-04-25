@@ -8,6 +8,8 @@ import Orders from "./pages/Orders";
 import Routings from "./pages/Routings";
 import ScheduleResults from "./pages/ScheduleResults";
 import Scheduling from "./pages/Scheduling";
+import WorkCenters from "./pages/WorkCenters";
+import WorkOrderImport from "./pages/WorkOrderImport";
 
 const router = createBrowserRouter([
   {
@@ -15,6 +17,8 @@ const router = createBrowserRouter([
     element: <App />,
     children: [
       { index: true, element: <Dashboard /> },
+      { path: "work-order-import", element: <WorkOrderImport /> },
+      { path: "work-centers", element: <WorkCenters /> },
       { path: "machines", element: <Machines /> },
       { path: "orders", element: <Orders /> },
       { path: "routings", element: <Routings /> },

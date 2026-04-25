@@ -1,5 +1,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useState } from "react";
 
+import Login from "./pages/Login";
 import { formatDate } from "./utils/formatters";
 
 const navItems = [
@@ -8,6 +10,18 @@ const navItems = [
     code: "DB",
     label: "\u9996\u9875",
     hint: "\u603b\u89c8\u4e0e\u98ce\u9669"
+  },
+  {
+    to: "/work-order-import",
+    code: "IMP",
+    label: "工单导入",
+    hint: "Excel 预览与入库"
+  },
+  {
+    to: "/work-centers",
+    code: "RES",
+    label: "资源配置",
+    hint: "工段与设备道"
   },
   {
     to: "/scheduling",
@@ -54,6 +68,20 @@ const pageMeta = {
     description:
       "\u56f4\u7ed5\u8ba2\u5355\u3001\u673a\u53f0\u3001\u5de5\u827a\u548c\u6392\u4ea7\u7ed3\u679c\u5efa\u7acb\u4e00\u4e2a\u53ef\u89c2\u5bdf\u3001\u53ef\u6267\u884c\u7684\u8ba1\u5212\u5de5\u4f5c\u533a\u3002",
     focus: "\u8fd0\u884c\u89c6\u56fe"
+  },
+  "/work-order-import": {
+    eyebrow: "Work order import",
+    title: "工单导入与解析确认",
+    description:
+      "上传工艺表，补充订单信息，先预览零件、工序、工时和异常，再确认进入排产队列。",
+    focus: "导入校验"
+  },
+  "/work-centers": {
+    eyebrow: "Resource settings",
+    title: "资源工段与设备产能",
+    description:
+      "维护 Excel 工序列到内部工段、外协资源和设备道的映射，决定排产时的产能约束。",
+    focus: "资源模型"
   },
   "/scheduling": {
     eyebrow: "Scheduling cockpit",
@@ -114,6 +142,22 @@ function getPageMeta(pathname) {
 export default function App() {
   const location = useLocation();
   const meta = getPageMeta(location.pathname);
+  const [user, setUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("aps_user"));
+    } catch {
+      return null;
+    }
+  });
+
+  if (!user) {
+    return <Login onLogin={setUser} />;
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem("aps_user");
+    setUser(null);
+  };
 
   return (
     <div className="app-shell">
@@ -169,6 +213,13 @@ export default function App() {
             <div className="meta-card">
               <p className="meta-label">focus</p>
               <p className="meta-value">{meta.focus}</p>
+            </div>
+            <div className="meta-card">
+              <p className="meta-label">current user</p>
+              <p className="meta-value">{`${user.username} / ${user.role}`}</p>
+              <button className="link-button" type="button" onClick={handleLogout}>
+                退出登录
+              </button>
             </div>
             <div className="meta-card">
               <p className="meta-label">workspace date</p>
