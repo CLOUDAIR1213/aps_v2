@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useState } from "react";
 
 import Login from "./pages/Login";
@@ -9,57 +9,89 @@ const navItems = [
     to: "/",
     code: "DB",
     label: "\u9996\u9875",
-    hint: "\u603b\u89c8\u4e0e\u98ce\u9669"
+    hint: "\u603b\u89c8\u4e0e\u98ce\u9669",
+    group: "\u8fd0\u884c\u603b\u89c8"
   },
   {
     to: "/work-order-import",
     code: "IMP",
     label: "工单导入",
-    hint: "Excel 预览与入库"
+    hint: "Excel 预览与入库",
+    group: "\u6570\u636e\u51c6\u5907"
   },
   {
     to: "/work-centers",
-    code: "RES",
+    code: "CFG",
     label: "资源配置",
-    hint: "工段与设备道"
+    hint: "工段与设备道",
+    group: "\u6570\u636e\u51c6\u5907"
+  },  {
+    to: "/operation-mappings",
+    code: "MAP",
+    label: "工序映射",
+    hint: "Excel 列名到工段",
+    group: "数据准备"
   },
+  {
+    to: "/personnel",
+    code: "PER",
+    label: "人员档案",
+    hint: "花名册与工段关联",
+    group: "数据准备"
+  },
+  {
+    to: "/resource-groups",
+    code: "RSG",
+    label: "资源分组",
+    hint: "工段与设备归类",
+    group: "数据准备"
+  },
+
   {
     to: "/scheduling",
     code: "SCH",
     label: "\u6392\u4ea7\u9a7e\u9a76\u53f0",
-    hint: "\u961f\u5217\u4e0e\u4e00\u952e\u6392\u4ea7"
+    hint: "\u961f\u5217\u4e0e\u4e00\u952e\u6392\u4ea7",
+    group: "\u8ba1\u5212\u6267\u884c"
   },
   {
     to: "/schedule-results",
-    code: "RES",
-    label: "\u6392\u4ea7\u7ed3\u679c",
-    hint: "\u65b9\u6848\u4e0e\u8bbe\u5907\u8d1f\u8377"
+    code: "OUT",
+    label: "订单排产总览",
+    hint: "订单完成与延期风险",
+    group: "\u8ba1\u5212\u590d\u76d8"
   },
   {
     to: "/gantt",
     code: "GNT",
     label: "\u7518\u7279\u56fe",
-    hint: "\u673a\u53f0\u65f6\u95f4\u8f74"
+    hint: "\u673a\u53f0\u65f6\u95f4\u8f74",
+    group: "\u8ba1\u5212\u590d\u76d8"
   },
   {
     to: "/machines",
     code: "MCH",
     label: "\u8bbe\u5907\u7ba1\u7406",
-    hint: "\u8d44\u6e90\u4e3b\u6570\u636e"
+    hint: "\u8d44\u6e90\u4e3b\u6570\u636e",
+    group: "\u57fa\u7840\u8d44\u6599"
   },
   {
     to: "/orders",
     code: "ORD",
     label: "\u8ba2\u5355\u7ba1\u7406",
-    hint: "\u4ea4\u671f\u4e0e\u4f18\u5148\u7ea7"
+    hint: "\u4ea4\u671f\u4e0e\u4f18\u5148\u7ea7",
+    group: "\u57fa\u7840\u8d44\u6599"
   },
   {
     to: "/routings",
     code: "RTE",
     label: "\u5de5\u827a\u8def\u7ebf",
-    hint: "\u5de5\u5e8f\u4e0e\u673a\u53f0\u7ea6\u675f"
+    hint: "\u5de5\u5e8f\u4e0e\u673a\u53f0\u7ea6\u675f",
+    group: "\u57fa\u7840\u8d44\u6599"
   }
 ];
+
+const navGroups = ["\u8fd0\u884c\u603b\u89c8", "\u6570\u636e\u51c6\u5907", "\u8ba1\u5212\u6267\u884c", "\u8ba1\u5212\u590d\u76d8", "\u57fa\u7840\u8d44\u6599"];
 
 const pageMeta = {
   "/": {
@@ -83,6 +115,27 @@ const pageMeta = {
       "维护 Excel 工序列到内部工段、外协资源和设备道的映射，决定排产时的产能约束。",
     focus: "资源模型"
   },
+  "/operation-mappings": {
+    eyebrow: "Operation mapping",
+    title: "工序列名到工段映射",
+    description:
+      "将 Excel 工艺表的工序列名映射到系统工段，导入时自动识别和分配。",
+    focus: "映射配置"
+  },
+  "/personnel": {
+    eyebrow: "Personnel archive",
+    title: "人员花名册与工段关联",
+    description:
+      "查看和管理人员档案，按工段关联分组，支持从排班表批量导入。",
+    focus: "人员管理"
+  },
+  "/resource-groups": {
+    eyebrow: "Resource groups",
+    title: "资源分组管理",
+    description:
+      "将工段和设备归类到资源组，便于分组管理和统计。",
+    focus: "资源归类"
+  },
   "/scheduling": {
     eyebrow: "Scheduling cockpit",
     title: "\u5f85\u6392\u4ea7\u961f\u5217\u4e0e\u6267\u884c\u63a7\u5236",
@@ -91,11 +144,18 @@ const pageMeta = {
     focus: "\u6392\u4ea7\u51b3\u7b56"
   },
   "/schedule-results": {
-    eyebrow: "Execution result",
-    title: "\u6700\u65b0\u6392\u4ea7\u65b9\u6848",
+    eyebrow: "订单总览",
+    title: "订单级排产总览",
     description:
-      "\u5bf9\u6700\u8fd1\u4e00\u6b21\u6392\u4ea7\u7684\u8d1f\u8377\u3001\u65f6\u95f4\u7a97\u548c\u4ea4\u671f\u98ce\u9669\u8fdb\u884c\u590d\u76d8\uff0c\u786e\u5b9a\u662f\u5426\u53ef\u4ee5\u53d1\u5e03\u3002",
-    focus: "\u65b9\u6848\u590d\u76d8"
+      "默认从订单维度查看预计开始、预计完成、延期风险和资源负荷，再下钻到零件与工序。",
+    focus: "订单交付"
+  },
+  "/scheduling/orders": {
+    eyebrow: "订单解释",
+    title: "订单排产详情",
+    description:
+      "从订单下钻到零件和工序，解释预计完成时间、关键工序和前后置依赖。",
+    focus: "排产解释"
   },
   "/gantt": {
     eyebrow: "Machine timeline",
@@ -135,13 +195,102 @@ const workflowSteps = [
   "\u590d\u76d8\u673a\u53f0\u7ed3\u679c"
 ];
 
+const workflowByPath = {
+  "/": 4,
+  "/machines": 0,
+  "/orders": 0,
+  "/work-centers": 0,
+  "/operation-mappings": 0,
+  "/personnel": 0,
+  "/resource-groups": 0,
+  "/routings": 1,
+  "/work-order-import": 2,
+  "/scheduling": 3,
+  "/schedule-results": 4,
+  "/gantt": 4
+};
+
+const pageActions = {
+  "/": [
+    { to: "/work-order-import", label: "\u5bfc\u5165\u5de5\u5355", variant: "" },
+    { to: "/scheduling", label: "\u8fdb\u5165\u6392\u4ea7", variant: "ghost" }
+  ],
+  "/work-order-import": [
+    { to: "/work-centers", label: "\u68c0\u67e5\u8d44\u6e90", variant: "ghost" },
+    { to: "/scheduling", label: "\u67e5\u770b\u961f\u5217", variant: "" }
+  ],
+  "/work-centers": [
+    { to: "/work-order-import", label: "\u5bfc\u5165\u5de5\u5355", variant: "ghost" },
+    { to: "/machines", label: "\u8bbe\u5907\u4e3b\u6570\u636e", variant: "" }
+  ],
+  "/scheduling": [
+    { to: "/work-order-import", label: "\u8865\u5145\u5de5\u5355", variant: "ghost" },
+    { to: "/schedule-results", label: "\u67e5\u770b\u7ed3\u679c", variant: "" }
+  ],
+  "/schedule-results": [
+    { to: "/gantt", label: "\u7518\u7279\u56fe", variant: "" },
+    { to: "/scheduling", label: "\u91cd\u65b0\u6392\u4ea7", variant: "ghost" }
+  ],
+  "/scheduling/orders": [
+    { to: "/schedule-results", label: "订单总览", variant: "ghost" },
+    { to: "/gantt", label: "资源甘特图", variant: "" }
+  ],
+  "/gantt": [
+    { to: "/schedule-results", label: "\u56de\u5230\u7ed3\u679c", variant: "ghost" },
+    { to: "/scheduling", label: "\u8c03\u6574\u961f\u5217", variant: "" }
+  ],
+  "/machines": [
+    { to: "/work-centers", label: "\u8d44\u6e90\u914d\u7f6e", variant: "" },
+    { to: "/routings", label: "\u5de5\u827a\u8def\u7ebf", variant: "ghost" }
+  ],
+  "/orders": [
+    { to: "/work-order-import", label: "\u6279\u91cf\u5bfc\u5165", variant: "" },
+    { to: "/scheduling", label: "\u6392\u4ea7\u961f\u5217", variant: "ghost" }
+  ],
+  "/operation-mappings": [
+    { to: "/work-order-import", label: "工单导入", variant: "ghost" },
+    { to: "/work-centers", label: "资源配置", variant: "" }
+  ],
+  "/personnel": [
+    { to: "/work-centers", label: "资源配置", variant: "ghost" },
+    { to: "/operation-mappings", label: "工序映射", variant: "" }
+  ],
+  "/resource-groups": [
+    { to: "/work-centers", label: "资源配置", variant: "ghost" },
+    { to: "/personnel", label: "人员档案", variant: "" }
+  ],
+  "/routings": [
+    { to: "/orders", label: "\u8ba2\u5355", variant: "ghost" },
+    { to: "/scheduling", label: "\u751f\u6210\u8ba1\u5212", variant: "" }
+  ]
+};
+
 function getPageMeta(pathname) {
+  if (pathname.startsWith("/scheduling/orders/")) {
+    return pageMeta["/scheduling/orders"];
+  }
   return pageMeta[pathname] || pageMeta["/"];
+}
+
+function getPageActions(pathname) {
+  if (pathname.startsWith("/scheduling/orders/")) {
+    return pageActions["/scheduling/orders"];
+  }
+  return pageActions[pathname] || pageActions["/"];
+}
+
+function getWorkflowIndex(pathname) {
+  if (pathname.startsWith("/scheduling/orders/")) {
+    return 4;
+  }
+  return workflowByPath[pathname] ?? 0;
 }
 
 export default function App() {
   const location = useLocation();
   const meta = getPageMeta(location.pathname);
+  const activeWorkflowIndex = getWorkflowIndex(location.pathname);
+  const actions = getPageActions(location.pathname);
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("aps_user"));
@@ -170,29 +319,41 @@ export default function App() {
           </p>
         </div>
 
-        <ul className="nav-list">
-          {navItems.map((item) => (
-            <li key={item.to}>
-              <NavLink
-                to={item.to}
-                end={item.to === "/"}
-                className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
-              >
-                <span className="nav-code">{item.code}</span>
-                <span className="nav-text">
-                  <span className="nav-label">{item.label}</span>
-                  <span className="nav-hint">{item.hint}</span>
-                </span>
-              </NavLink>
-            </li>
+        <nav className="sidebar-nav" aria-label="APS navigation">
+          {navGroups.map((group) => (
+            <div className="nav-group" key={group}>
+              <p className="nav-group-title">{group}</p>
+              <ul className="nav-list">
+                {navItems
+                  .filter((item) => item.group === group)
+                  .map((item) => (
+                    <li key={item.to}>
+                      <NavLink
+                        to={item.to}
+                        end={item.to === "/"}
+                        className={({ isActive }) => `nav-link${isActive ? " active" : ""}`}
+                      >
+                        <span className="nav-code">{item.code}</span>
+                        <span className="nav-text">
+                          <span className="nav-label">{item.label}</span>
+                          <span className="nav-hint">{item.hint}</span>
+                        </span>
+                      </NavLink>
+                    </li>
+                  ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </nav>
 
         <div className="sidebar-flow">
           <p className="sidebar-flow-title">workflow</p>
           <ol className="sidebar-flow-list">
             {workflowSteps.map((step, index) => (
-              <li key={step} className="sidebar-flow-item">
+              <li
+                key={step}
+                className={`sidebar-flow-item${index === activeWorkflowIndex ? " active" : ""}`}
+              >
                 <span className="flow-index">{index + 1}</span>
                 <span>{step}</span>
               </li>
@@ -209,21 +370,35 @@ export default function App() {
             <p className="topbar-description">{meta.description}</p>
           </div>
 
-          <div className="topbar-meta">
-            <div className="meta-card">
-              <p className="meta-label">focus</p>
-              <p className="meta-value">{meta.focus}</p>
+          <div className="topbar-toolbar">
+            <div className="topbar-actions" aria-label="Page actions">
+              {actions.map((action) => (
+                <Link
+                  key={action.to}
+                  className={`button small ${action.variant}`.trim()}
+                  to={action.to}
+                >
+                  {action.label}
+                </Link>
+              ))}
             </div>
-            <div className="meta-card">
-              <p className="meta-label">current user</p>
-              <p className="meta-value">{`${user.username} / ${user.role}`}</p>
-              <button className="link-button" type="button" onClick={handleLogout}>
-                退出登录
-              </button>
-            </div>
-            <div className="meta-card">
-              <p className="meta-label">workspace date</p>
-              <p className="meta-value">{formatDate(new Date())}</p>
+
+            <div className="topbar-meta">
+              <div className="meta-card">
+                <p className="meta-label">focus</p>
+                <p className="meta-value">{meta.focus}</p>
+              </div>
+              <div className="meta-card">
+                <p className="meta-label">user</p>
+                <p className="meta-value">{`${user.username} / ${user.role}`}</p>
+                <button className="link-button" type="button" onClick={handleLogout}>
+                  退出登录
+                </button>
+              </div>
+              <div className="meta-card">
+                <p className="meta-label">date</p>
+                <p className="meta-value">{formatDate(new Date())}</p>
+              </div>
             </div>
           </div>
         </header>

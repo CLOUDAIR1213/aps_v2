@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { getProductionGanttData, getProductionSchedulingResult } from "../api/production";
 import GanttChart from "../components/GanttChart";
@@ -8,6 +8,8 @@ import StatusBadge from "../components/StatusBadge";
 import { formatDateTime, formatHours, getDurationHours } from "../utils/formatters";
 
 export default function Gantt() {
+  const [searchParams] = useSearchParams();
+  const scheduleId = searchParams.get("schedule_id");
   const [data, setData] = useState([]);
   const [latestResult, setLatestResult] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -18,9 +20,10 @@ export default function Gantt() {
       setLoading(true);
       setError("");
       try {
+        const ganttParams = scheduleId ? { schedule_id: scheduleId } : {};
         const [ganttData, latestData] = await Promise.all([
-          getProductionGanttData(),
-          getProductionSchedulingResult()
+          getProductionGanttData(ganttParams),
+          getProductionSchedulingResult(scheduleId ? Number(scheduleId) : null)
         ]);
         setData(ganttData || []);
         setLatestResult(latestData);
@@ -37,7 +40,7 @@ export default function Gantt() {
     };
 
     loadData();
-  }, []);
+  }, [scheduleId]);
 
   const allTasks = data.flatMap((resource) => resource.tasks);
   const ganttStart =
@@ -86,7 +89,7 @@ export default function Gantt() {
         ) : null}
 
         <div className="panel-actions">
-          <Link className="button ghost small" to="/schedule-results">
+          <Link className="button ghost small" to={`/schedule-results${scheduleId ? `?schedule_id=${scheduleId}` : ""}`}>
             回到结果
           </Link>
           <Link className="button ghost small" to="/scheduling">

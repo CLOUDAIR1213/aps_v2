@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 sqlalchemy
-aiosqlite
+asyncmy
+alembic
 openpyxl
 python-multipart

@@ -7,7 +7,10 @@ export default function SummaryCards({ cards = [], loading = false }) {
           className="metric-card"
           style={{ "--metric-accent": card.accent || "#205c52" }}
         >
-          <p className="metric-label">{card.title}</p>
+          <div className="metric-head">
+            <span className="metric-dot" />
+            <p className="metric-label">{card.title}</p>
+          </div>
           <p className="metric-value">{loading ? "..." : card.value}</p>
           <p className="metric-meta">{card.meta}</p>
         </article>

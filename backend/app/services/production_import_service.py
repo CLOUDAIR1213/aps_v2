@@ -61,9 +61,9 @@ def _parent_no(no: str) -> str | None:
 async def parse_work_order_workbook(
     content: bytes,
     filename: str,
-    existing_work_centers: set[str] | None = None,
+    mapping_rules: dict[str, dict] | None = None,
 ) -> ImportPreviewPayload:
-    existing_work_centers = existing_work_centers or set()
+    mapping_rules = mapping_rules or {}
     workbook = load_workbook(BytesIO(content), read_only=False, data_only=True, keep_vba=True)
     issues: list[ImportIssue] = []
 
@@ -78,13 +78,13 @@ async def parse_work_order_workbook(
         if col_idx <= BASE_COLUMNS or header in IGNORED_OPERATION_HEADERS:
             continue
         operation_columns.append((col_idx, header, len(operation_columns) + 1))
-        if header not in existing_work_centers:
+        if header not in mapping_rules:
             issues.append(
                 ImportIssue(
-                    severity="warning",
+                    severity="error",
                     column=col_idx,
                     field="work_center",
-                    message=f"工序列 '{header}' 尚未配置资源，确认导入时将自动创建。",
+                    message=f"工序列 '{header}' 尚未配置映射规则，请先在工序映射中配置。",
                 )
             )
 
@@ -146,7 +146,38 @@ async def parse_work_order_workbook(
 
         for col_idx, header, seq_no in operation_columns:
             raw_value = sheet.cell(row_idx, col_idx).value
+            is_external = mapping_rules.get(header, {}).get("is_external", header in EXTERNAL_WORK_CENTERS)
+
             if raw_value in (None, ""):
+                # External mapped columns: use default duration from work center config
+                if is_external and header in mapping_rules:
+                    default_h = mapping_rules[header].get("default_duration_hours")
+                    if default_h and default_h > 0:
+                        operations.append(
+                            ImportOperationPreview(
+                                part_no=no,
+                                drawing_no=drawing_no,
+                                part_name=name or drawing_no,
+                                work_center_name=header,
+                                seq_no=seq_no,
+                                duration_hours=round(default_h, 3),
+                                source_row=row_idx,
+                                source_col=col_idx,
+                                is_external=True,
+                                mapped=True,
+                            )
+                        )
+                        part_operation_counts[no] += 1
+                        part_hours[no] += default_h
+                        issues.append(
+                            ImportIssue(
+                                severity="info",
+                                row=row_idx,
+                                column=col_idx,
+                                field=header,
+                                message=f"{drawing_no} 的工序 '{header}' Excel 无工时，已使用工段默认工时 {default_h}h。",
+                            )
+                        )
                 continue
 
             duration = _to_float(raw_value)
@@ -174,8 +205,8 @@ async def parse_work_order_workbook(
                     duration_hours=round(duration, 3),
                     source_row=row_idx,
                     source_col=col_idx,
-                    is_external=header in EXTERNAL_WORK_CENTERS,
-                    mapped=header in existing_work_centers,
+                    is_external=is_external,
+                    mapped=header in mapping_rules,
                 )
             )
             part_operation_counts[no] += 1

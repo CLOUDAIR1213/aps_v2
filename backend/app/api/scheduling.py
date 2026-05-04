@@ -1,11 +1,15 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.schedule import get_gantt_data, get_latest_schedule_result, get_schedule_result_by_id
 from app.crud.task import get_schedule_tasks
 from app.database import get_db
+from app.schemas.production import ScheduleBoardResponse
 from app.schemas.schedule import SchedulingResultRead
 from app.schemas.task import ScheduleTaskRead
+from app.services.production_service import get_schedule_board
 from app.services.scheduling_service import run_rule_based_scheduling
 from app.services.task_generation_service import generate_schedule_tasks
 
@@ -72,3 +76,27 @@ async def get_scheduling_result(schedule_id: int, db: AsyncSession = Depends(get
 @router.get("/gantt")
 async def get_scheduling_gantt(db: AsyncSession = Depends(get_db)):
     return await get_gantt_data(db)
+
+
+@router.get("/{schedule_id}/board", response_model=ScheduleBoardResponse)
+async def get_scheduling_board(
+    schedule_id: int,
+    work_center: str | None = None,
+    start_date: date | None = None,
+    days: int = 14,
+    order_id: int | None = None,
+    view_mode: str = "by_work_center",
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await get_schedule_board(
+            db=db,
+            schedule_id=schedule_id,
+            work_center=work_center,
+            start_date=start_date,
+            days=days,
+            order_id=order_id,
+            view_mode=view_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

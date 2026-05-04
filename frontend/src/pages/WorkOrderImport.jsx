@@ -118,6 +118,8 @@ export default function WorkOrderImport() {
   const blockingErrors = preview?.issues?.filter((issue) => issue.severity === "error") || [];
   const topOperations = preview?.operations?.slice(0, 12) || [];
   const topParts = preview?.parts?.filter((part) => part.operation_count > 0).slice(0, 10) || [];
+  const unmappedCount = preview?.operations?.filter((op) => !op.mapped).length || 0;
+  const unmappedNames = [...new Set(preview?.operations?.filter((op) => !op.mapped).map((op) => op.work_center_name) || [])];
 
   return (
     <section className="page-grid">
@@ -225,6 +227,16 @@ export default function WorkOrderImport() {
         <>
           <SummaryCards cards={cards} />
 
+          {unmappedCount > 0 ? (
+            <div className="alert danger">
+              <strong>阻塞：</strong>
+              有 {unmappedCount} 道工序未配置映射规则（{unmappedNames.join("、")}），
+              请先
+              <Link to="/operation-mappings"> 配置工序映射 </Link>
+              后再确认导入。
+            </div>
+          ) : null}
+
           <div className="split-grid">
             <div className="panel">
               <div className="panel-header">
@@ -260,6 +272,10 @@ export default function WorkOrderImport() {
                         <td>
                           <StatusBadge tone={operation.is_external ? "warning" : "info"}>
                             {operation.is_external ? "外协" : "内部"}
+                          </StatusBadge>
+                          {" "}
+                          <StatusBadge tone={operation.mapped ? "success" : "danger"}>
+                            {operation.mapped ? "已映射" : "未映射"}
                           </StatusBadge>
                         </td>
                       </tr>
