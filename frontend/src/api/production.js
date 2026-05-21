@@ -15,6 +15,11 @@ export const getWorkOrders = async () => {
   return response.data;
 };
 
+export const deleteWorkOrder = async (id) => {
+  const response = await apiClient.delete(`/api/work-orders/${id}`);
+  return response.data;
+};
+
 export const previewWorkOrderImport = async (file) => {
   const formData = new FormData();
   formData.append("file", file);
@@ -35,6 +40,11 @@ export const importPersonnel = async (file) => {
   const response = await apiClient.post("/api/personnel/import", formData, {
     headers: { "Content-Type": "multipart/form-data" }
   });
+  return response.data;
+};
+
+export const deletePersonnel = async (id) => {
+  const response = await apiClient.delete(`/api/personnel/${id}`);
   return response.data;
 };
 
@@ -92,7 +102,25 @@ export const getProductionGanttData = async (params = {}) => {
 };
 
 export const getScheduleBoard = async (scheduleId, params = {}) => {
-  const response = await apiClient.get(`/api/scheduling/${scheduleId}/board`, { params });
+  const response = await apiClient.get(`/api/production/scheduling/schedules/${scheduleId}/board`, { params });
+  return response.data;
+};
+
+export const getScheduleDispatch = async (scheduleId, params = {}) => {
+  const response = await apiClient.get(`/api/production/scheduling/schedules/${scheduleId}/dispatch`, { params });
+  return response.data;
+};
+
+export const saveScheduleItemPersonnelAllocations = async (scheduleItemId, payload) => {
+  const response = await apiClient.put(
+    `/api/production/scheduling/schedule-items/${scheduleItemId}/personnel-allocations`,
+    payload,
+  );
+  return response.data;
+};
+
+export const getPersonnelWorkload = async (params = {}) => {
+  const response = await apiClient.get("/api/personnel/workload", { params });
   return response.data;
 };
 
@@ -111,6 +139,11 @@ export const disableWorkCenter = async (id) => {
   return response.data;
 };
 
+export const deleteWorkCenter = async (id) => {
+  const response = await apiClient.delete(`/api/work-centers/${id}`);
+  return response.data;
+};
+
 export const createMachine = async (payload) => {
   const response = await apiClient.post("/api/resource-machines", payload);
   return response.data;
@@ -118,6 +151,11 @@ export const createMachine = async (payload) => {
 
 export const updateMachine = async (id, payload) => {
   const response = await apiClient.put(`/api/resource-machines/${id}`, payload);
+  return response.data;
+};
+
+export const deleteMachine = async (id) => {
+  const response = await apiClient.delete(`/api/resource-machines/${id}`);
   return response.data;
 };
 
@@ -133,6 +171,11 @@ export const createOperationMappingRule = async (payload) => {
 
 export const updateOperationMappingRule = async (id, payload) => {
   const response = await apiClient.put(`/api/operation-mapping-rules/${id}`, payload);
+  return response.data;
+};
+
+export const deleteOperationMappingRule = async (id) => {
+  const response = await apiClient.delete(`/api/operation-mapping-rules/${id}`);
   return response.data;
 };
 
@@ -181,5 +224,23 @@ export const exportSchedule = async (scheduleId) => {
     `/api/production/scheduling/schedules/${scheduleId}/export`,
     { responseType: "blob" },
   );
+  return response;
+};
+
+export const getManagementDashboard = async (params = {}) => {
+  const response = await apiClient.get("/api/production/management-dashboard", { params });
+  return response.data;
+};
+
+export const updateManagementIssueState = async (payload) => {
+  const response = await apiClient.patch("/api/production/management-dashboard/issue-state", payload);
+  return response.data;
+};
+
+export const exportManagementDashboard = async (params = {}) => {
+  const response = await apiClient.get("/api/production/management-dashboard/export", {
+    params,
+    responseType: "blob",
+  });
   return response;
 };

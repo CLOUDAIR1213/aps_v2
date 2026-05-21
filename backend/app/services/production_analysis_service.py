@@ -12,14 +12,17 @@ from app.models.production import (
     ProductionOperation,
     ProductionSchedule,
     ProductionScheduleItem,
+    ProductionScheduleItemPersonnelAllocation,
     ProductionScheduleOrderLock,
     WorkCenter,
 )
 from app.schemas.production import (
     OrderScheduleDependency,
+    OrderScheduleDependencyReason,
     OrderScheduleDetail,
     OrderScheduleOperation,
     OrderSchedulePart,
+    PersonnelAllocationRead,
     ProductionOrderOverviewRow,
     ProductionScheduleListResponse,
     ProductionSchedulingOverview,
@@ -28,7 +31,7 @@ from app.schemas.production import (
     ScheduleRiskResponse,
     ScheduleRiskRow,
 )
-from app.services.production_service import is_workday
+from app.services.production_service import is_workday, scheduled_work_minutes
 
 
 async def list_production_schedules(db: AsyncSession) -> ProductionScheduleListResponse:
@@ -56,6 +59,9 @@ async def _load_schedule_items(db: AsyncSession, schedule_id: int) -> list[Produ
             selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
             selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
             selectinload(ProductionScheduleItem.machine),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
         )
         .order_by(ProductionScheduleItem.start_time, ProductionScheduleItem.id)
     )
@@ -115,7 +121,7 @@ def _resource_load_rows(schedule: ProductionSchedule, items: list[ProductionSche
                 ),
             },
         )
-        row["busy_minutes"] += max(int(round(operation.duration_hours * 60)), 1)
+        row["busy_minutes"] += scheduled_work_minutes(item.start_time, item.end_time)
 
     resources: list[ResourceLoadRow] = []
     for row in groups.values():
@@ -244,6 +250,33 @@ async def get_order_schedule_detail(
     predecessor_map: dict[int, list[int]] = defaultdict(list)
     for dependency in dependencies:
         predecessor_map[dependency.operation_id].append(dependency.depends_on_operation_id)
+    item_by_operation_id = {item.operation_id: item for item in items}
+
+    def dependency_reasons_for(item: ProductionScheduleItem) -> list[OrderScheduleDependencyReason]:
+        reasons: list[OrderScheduleDependencyReason] = []
+        successor_part = item.operation.part
+        for predecessor_operation_id in sorted(predecessor_map.get(item.operation_id, [])):
+            predecessor_item = item_by_operation_id.get(predecessor_operation_id)
+            if predecessor_item is None:
+                continue
+            predecessor_part = predecessor_item.operation.part
+            if predecessor_item.part_id == item.part_id:
+                reasons.append(
+                    OrderScheduleDependencyReason(
+                        predecessor_operation_id=predecessor_operation_id,
+                        type="sequence",
+                        reason="同一零件内上一道工序完成后才能开始。",
+                    )
+                )
+            else:
+                reasons.append(
+                    OrderScheduleDependencyReason(
+                        predecessor_operation_id=predecessor_operation_id,
+                        type="hierarchy",
+                        reason=f"父级 {successor_part.no} 必须等待子级 {predecessor_part.no} 完成。",
+                    )
+                )
+        return reasons
 
     items_by_part: dict[int, list[ProductionScheduleItem]] = defaultdict(list)
     for item in items:
@@ -264,8 +297,24 @@ async def get_order_schedule_detail(
                 machine_name=item.machine.name if item.machine else None,
                 planned_start_time=item.start_time,
                 planned_end_time=item.end_time,
-                duration_minutes=max(int(round(item.operation.duration_hours * 60)), 1),
+                duration_minutes=scheduled_work_minutes(item.start_time, item.end_time),
                 predecessor_operation_ids=sorted(predecessor_map.get(item.operation_id, [])),
+                dependency_reasons=dependency_reasons_for(item),
+                allocations=[
+                    PersonnelAllocationRead(
+                        id=allocation.id,
+                        schedule_item_id=allocation.schedule_item_id,
+                        person_id=allocation.person_id,
+                        employee_no=allocation.person.employee_no,
+                        person_name=allocation.person.name,
+                        ratio_percent=allocation.ratio_percent,
+                        planned_minutes=allocation.planned_minutes,
+                    )
+                    for allocation in sorted(
+                        item.personnel_allocations,
+                        key=lambda row: (row.person.name, row.person_id),
+                    )
+                ],
             )
             for item in sorted(part_items, key=lambda value: (value.start_time, value.operation.seq_no))
         ]

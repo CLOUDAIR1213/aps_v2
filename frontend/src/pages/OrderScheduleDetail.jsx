@@ -4,6 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { getOrderScheduleDetail } from "../api/production";
 import StatusBadge from "../components/StatusBadge";
 import { formatDate, formatDateTime, formatHours, getDurationHours } from "../utils/formatters";
+import { buildScheduleBoardPath, buildSchedulePath } from "../utils/scheduleContext";
 
 function buildTimeline(items, startField, endField) {
   const timestamps = items.flatMap((item) => [
@@ -80,6 +81,31 @@ function OperationTimeline({ operations }) {
   );
 }
 
+function buildConclusion(detail) {
+  if (!detail) return "";
+  const finishText = formatDateTime(detail.planned_end_time);
+  if (detail.status === "delayed" || detail.delay_days > 0) {
+    return `预计 ${finishText} 完工，晚于交期 ${detail.delay_days} 天`;
+  }
+  return `预计 ${finishText} 完工，按期完成`;
+}
+
+function formatPredecessors(operation, sequenceByOperationId) {
+  if (!operation.predecessor_operation_ids?.length) {
+    return "无";
+  }
+  return operation.predecessor_operation_ids
+    .map((operationId) => {
+      const sequence = sequenceByOperationId.get(operationId);
+      return sequence ? `#${sequence}` : `工序 ${operationId}`;
+    })
+    .join("、");
+}
+
+function formatAllocation(allocation) {
+  return `${allocation.person_name} ${allocation.ratio_percent}% / ${formatHours(allocation.planned_minutes / 60)}`;
+}
+
 export default function OrderScheduleDetail() {
   const { workOrderId } = useParams();
   const [searchParams] = useSearchParams();
@@ -104,7 +130,7 @@ export default function OrderScheduleDetail() {
   }, [workOrderId, scheduleId]);
 
   const operations = useMemo(() => {
-    return (detail?.parts || []).flatMap((part) =>
+    const flattened = (detail?.parts || []).flatMap((part) =>
       part.operations.map((operation) => ({
         ...operation,
         part_id: part.part_id,
@@ -113,7 +139,16 @@ export default function OrderScheduleDetail() {
         part_name: part.part_name
       }))
     );
+    return flattened.sort((a, b) => {
+      const startDelta = new Date(a.planned_start_time).getTime() - new Date(b.planned_start_time).getTime();
+      if (startDelta !== 0) return startDelta;
+      return new Date(a.planned_end_time).getTime() - new Date(b.planned_end_time).getTime();
+    });
   }, [detail]);
+
+  const sequenceByOperationId = useMemo(() => {
+    return new Map(operations.map((operation, index) => [operation.operation_id, index + 1]));
+  }, [operations]);
 
   const lastOperation = useMemo(() => {
     return operations.reduce((latest, operation) => {
@@ -125,6 +160,22 @@ export default function OrderScheduleDetail() {
         : latest;
     }, null);
   }, [operations]);
+
+  const criticalOperations = useMemo(() => {
+    if (!lastOperation || !detail) {
+      return [];
+    }
+    if (detail.status === "delayed" || detail.delay_days > 0) {
+      return [lastOperation];
+    }
+    const dueTime = new Date(detail.due_date).getTime();
+    const nearDueOperations = operations.filter((operation) => {
+      const endTime = new Date(operation.planned_end_time).getTime();
+      const hoursBeforeDue = (dueTime - endTime) / 3600000;
+      return hoursBeforeDue >= 0 && hoursBeforeDue <= 48;
+    });
+    return nearDueOperations.length ? nearDueOperations.slice(-3) : [lastOperation];
+  }, [detail, lastOperation, operations]);
 
   if (loading) {
     return (
@@ -146,22 +197,66 @@ export default function OrderScheduleDetail() {
   }
 
   return (
-    <section className="page-grid">
-      <div className="panel">
+    <section className="page-grid order-explain-page">
+      <div className="panel order-explain-hero">
         <div className="panel-header">
           <div>
-            <h3 className="panel-title">订单排产详情</h3>
+            <h3 className="panel-title">订单排产解释</h3>
             <p className="panel-subtitle">
-              从订单下钻到零件和工序，用于解释这个订单为什么排到当前时间。
+              {buildConclusion(detail)}
             </p>
           </div>
           <div className="panel-actions">
-            <Link className="button ghost" to={`/schedule-results${scheduleId ? `?schedule_id=${scheduleId}` : ""}`}>
-              返回订单总览
+            <Link className="button ghost" to={buildSchedulePath("/schedule-results", scheduleId)}>
+              返回订单完工表
             </Link>
-            <Link className="button ghost" to="/gantt">
-              查看资源甘特图
+            <Link className="button ghost" to={buildScheduleBoardPath(scheduleId)}>
+              查看排班表定位
             </Link>
+            <Link className="button ghost" to={buildSchedulePath("/gantt", scheduleId)}>
+              查看甘特图
+            </Link>
+          </div>
+        </div>
+
+        <div className="order-explain-grid">
+          <div className={`order-conclusion-card ${detail.status === "delayed" ? "danger" : "success"}`}>
+            <span>明确结论</span>
+            <strong>{buildConclusion(detail)}</strong>
+            <StatusBadge tone={detail.status === "delayed" ? "danger" : "success"}>
+              {detail.status === "delayed" ? `延期 ${detail.delay_days} 天` : "按期"}
+            </StatusBadge>
+          </div>
+
+          <div className="last-operation-card">
+            <div>
+              <span>最后完成工序</span>
+              <strong>{lastOperation?.operation_name || "--"}</strong>
+            </div>
+            <div>
+              <span>工段</span>
+              <strong>{lastOperation?.work_center_name || "--"}</strong>
+            </div>
+            <div>
+              <span>设备</span>
+              <strong>{lastOperation?.machine_name || "外协/未指定设备"}</strong>
+            </div>
+            <div>
+              <span>结束时间</span>
+              <strong>{lastOperation ? formatDateTime(lastOperation.planned_end_time) : "--"}</strong>
+            </div>
+          </div>
+
+          <div className="critical-operation-card">
+            <span>影响交付的关键工序</span>
+            <div className="critical-operation-list">
+              {criticalOperations.map((operation) => (
+                <div key={operation.operation_id}>
+                  <strong>{`#${sequenceByOperationId.get(operation.operation_id)} ${operation.operation_name}`}</strong>
+                  <p>{`${operation.work_center_name} / ${operation.machine_name || "外协"} / ${formatDateTime(operation.planned_end_time)}`}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
@@ -173,9 +268,6 @@ export default function OrderScheduleDetail() {
               <h3 className="panel-title">{detail.order_no}</h3>
               <p className="panel-subtitle">{`${detail.customer_name} / ${detail.product_name}`}</p>
             </div>
-            <StatusBadge tone={detail.status === "delayed" ? "danger" : "success"}>
-              {detail.status === "delayed" ? `延期 ${detail.delay_days} 天` : "正常"}
-            </StatusBadge>
           </div>
           <div className="detail-grid">
             <div>
@@ -199,8 +291,8 @@ export default function OrderScheduleDetail() {
               <strong>{formatDateTime(detail.planned_end_time)}</strong>
             </div>
             <div>
-              <span className="detail-key">最后工序</span>
-              <strong>{lastOperation ? `${lastOperation.operation_name} / ${lastOperation.work_center_name}` : "--"}</strong>
+              <span className="detail-key">交付状态</span>
+              <strong>{detail.status === "delayed" ? `延期 ${detail.delay_days} 天` : "按期完成"}</strong>
             </div>
           </div>
         </div>
@@ -235,20 +327,25 @@ export default function OrderScheduleDetail() {
             </div>
           </div>
           <div className="table-shell">
-            <table className="data-table">
+            <table className="data-table operation-explain-table">
               <thead>
                 <tr>
+                  <th>序号</th>
                   <th>零件</th>
                   <th>工序</th>
                   <th>资源</th>
+                  <th>派工</th>
                   <th>时间窗口</th>
                   <th>工时</th>
                   <th>前置工序</th>
                 </tr>
               </thead>
               <tbody>
-                {operations.map((operation) => (
+                {operations.map((operation, index) => (
                   <tr key={operation.operation_id}>
+                    <td>
+                      <span className="operation-sequence">{index + 1}</span>
+                    </td>
                     <td>
                       <p className="data-primary">{operation.drawing_no}</p>
                       <p className="data-secondary">{operation.part_name}</p>
@@ -259,11 +356,22 @@ export default function OrderScheduleDetail() {
                       <p className="data-secondary">{operation.machine_name || "外协"}</p>
                     </td>
                     <td>
+                      {operation.allocations?.length ? (
+                        operation.allocations.map((allocation) => (
+                          <p className="dispatch-person" key={allocation.id || allocation.person_id}>
+                            {formatAllocation(allocation)}
+                          </p>
+                        ))
+                      ) : (
+                        <StatusBadge tone="warning">未派工，请补充人员</StatusBadge>
+                      )}
+                    </td>
+                    <td>
                       <p className="data-primary">{formatDateTime(operation.planned_start_time)}</p>
                       <p className="data-secondary">{formatDateTime(operation.planned_end_time)}</p>
                     </td>
                     <td>{formatHours(operation.duration_minutes / 60)}</td>
-                    <td>{operation.predecessor_operation_ids.length || "无"}</td>
+                    <td>{formatPredecessors(operation, sequenceByOperationId)}</td>
                   </tr>
                 ))}
               </tbody>

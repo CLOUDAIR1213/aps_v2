@@ -1,19 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
   getScheduleBoard,
+  getProductionSchedules,
+  getProductionSchedulingOverview,
   getWorkCenters,
-  getWorkOrders,
-  importPersonnel
+  getWorkOrders
 } from "../api/production";
+import CurrentScheduleBanner from "../components/common/CurrentScheduleBanner";
 import StatusBadge from "../components/StatusBadge";
 import { formatDateTime, formatHours } from "../utils/formatters";
+import { buildSchedulePath, getActiveScheduleId, setActiveScheduleId } from "../utils/scheduleContext";
 
 const viewModes = [
-  { value: "by_work_center", label: "按工段" },
-  { value: "by_machine", label: "按设备" },
-  { value: "by_person", label: "按人员" }
+  { value: "by_work_center", label: "工段" },
+  { value: "by_machine", label: "设备" },
+  { value: "by_person", label: "人员" }
 ];
 
 function toDateInputValue(value) {
@@ -29,12 +32,12 @@ function toDateInputValue(value) {
 
 export default function ScheduleBoard() {
   const { scheduleId } = useParams();
+  const navigate = useNavigate();
   const [board, setBoard] = useState(null);
+  const [overview, setOverview] = useState(null);
   const [workCenters, setWorkCenters] = useState([]);
   const [orders, setOrders] = useState([]);
   const [selectedGroup, setSelectedGroup] = useState("all");
-  const [personnelFile, setPersonnelFile] = useState(null);
-  const [personnelMessage, setPersonnelMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -47,18 +50,52 @@ export default function ScheduleBoard() {
     view_mode: "by_work_center"
   });
 
+  const resolveDefaultStartDate = async (currentScheduleId) => {
+    const scheduleData = await getProductionSchedules();
+    const schedules = scheduleData.schedules || [];
+    const schedule = schedules.find((item) => String(item.id) === String(currentScheduleId));
+    return toDateInputValue(schedule?.start_time) || "";
+  };
+
   const loadBoard = async (nextFilters = filters) => {
     setLoading(true);
     setError("");
     try {
+      if (!scheduleId) {
+        const scheduleData = await getProductionSchedules();
+        const schedules = scheduleData.schedules || [];
+        const activeScheduleId = getActiveScheduleId();
+        const currentSchedule = schedules.find((schedule) => String(schedule.id) === String(activeScheduleId))
+          || schedules[0];
+        if (!currentSchedule) {
+          setBoard(null);
+          setOverview(null);
+          setError("");
+          return;
+        }
+        navigate(`/scheduling/board/${currentSchedule.id}`, { replace: true });
+        return;
+      }
+      const effectiveFilters = { ...nextFilters };
+      if (!effectiveFilters.start_date) {
+        effectiveFilters.start_date = await resolveDefaultStartDate(scheduleId);
+      }
       const params = Object.fromEntries(
-        Object.entries(nextFilters).filter(([, value]) => value !== "" && value !== null)
+        Object.entries(effectiveFilters).filter(([, value]) => value !== "" && value !== null)
       );
       const data = await getScheduleBoard(scheduleId, params);
+      let overviewData = null;
+      try {
+        overviewData = await getProductionSchedulingOverview({ schedule_id: scheduleId });
+      } catch {
+        overviewData = null;
+      }
       setBoard(data);
+      setOverview(overviewData);
+      setActiveScheduleId(scheduleId);
       setSelectedGroup("all");
-      if (!nextFilters.start_date && data.date_columns?.[0]?.date) {
-        setFilters((previous) => ({ ...previous, start_date: data.date_columns[0].date }));
+      if (effectiveFilters.start_date !== nextFilters.start_date) {
+        setFilters((previous) => ({ ...previous, start_date: effectiveFilters.start_date }));
       }
     } catch (requestError) {
       setError(requestError?.response?.data?.detail || "排班表加载失败。");
@@ -91,38 +128,63 @@ export default function ScheduleBoard() {
     board?.rows?.forEach((row) => {
       map.set(row.group_key, row.group_label);
     });
-    return Array.from(map.entries()).map(([key, label]) => ({ key, label }));
-  }, [board]);
+    return Array.from(map.entries())
+      .map(([key, label]) => ({ key, label }))
+      .sort((a, b) => {
+        if (filters.view_mode !== "by_person") {
+          return String(a.label).localeCompare(String(b.label), "zh-Hans-CN");
+        }
+        if (a.key === "person:unassigned") {
+          return -1;
+        }
+        if (b.key === "person:unassigned") {
+          return 1;
+        }
+        return String(a.label).localeCompare(String(b.label), "zh-Hans-CN");
+      });
+  }, [board, filters.view_mode]);
 
   const rows = useMemo(() => {
     const allRows = board?.rows || [];
     const normalizedQuery = query.trim().toLowerCase();
-    return allRows.filter((row) => {
-      if (selectedGroup !== "all" && row.group_key !== selectedGroup) {
-        return false;
-      }
-      if (rowType === "late" && !row.is_late) {
-        return false;
-      }
-      if (rowType === "external" && !row.is_external) {
-        return false;
-      }
-      if (!normalizedQuery) {
-        return true;
-      }
-      return [
-        row.order_no,
-        row.drawing_no,
-        row.part_no,
-        row.part_name,
-        row.customer_name,
-        row.machine_name,
-        row.person_name
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(normalizedQuery));
-    });
-  }, [board, selectedGroup, query, rowType]);
+    return allRows
+      .filter((row) => {
+        if (selectedGroup !== "all" && row.group_key !== selectedGroup) {
+          return false;
+        }
+        if (rowType === "late" && !row.is_late) {
+          return false;
+        }
+        if (rowType === "external" && !row.is_external) {
+          return false;
+        }
+        if (!normalizedQuery) {
+          return true;
+        }
+        return [
+          row.order_no,
+          row.drawing_no,
+          row.part_no,
+          row.part_name,
+          row.customer_name,
+          row.machine_name,
+          row.person_name
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+      })
+      .sort((a, b) => {
+        if (filters.view_mode === "by_person") {
+          const aUnassigned = a.group_key === "person:unassigned" ? 0 : 1;
+          const bUnassigned = b.group_key === "person:unassigned" ? 0 : 1;
+          return aUnassigned - bUnassigned
+            || String(a.group_label).localeCompare(String(b.group_label), "zh-Hans-CN")
+            || new Date(a.planned_start).getTime() - new Date(b.planned_start).getTime();
+        }
+        return String(a.group_label).localeCompare(String(b.group_label), "zh-Hans-CN")
+          || new Date(a.planned_start).getTime() - new Date(b.planned_start).getTime();
+      });
+  }, [board, selectedGroup, query, rowType, filters.view_mode]);
 
   const handleQuickDays = (days) => {
     const nextFilters = { ...filters, days };
@@ -142,23 +204,6 @@ export default function ScheduleBoard() {
     loadBoard(filters);
   };
 
-  const handleImportPersonnel = async () => {
-    if (!personnelFile) {
-      setPersonnelMessage("请先选择人员排班 Excel。");
-      return;
-    }
-    setPersonnelMessage("");
-    try {
-      const result = await importPersonnel(personnelFile);
-      setPersonnelMessage(
-        `人员导入完成：${result.imported_people} 人，关联 ${result.linked_work_centers} 个工段。`
-      );
-      await loadBoard(filters);
-    } catch (requestError) {
-      setPersonnelMessage(requestError?.response?.data?.detail || "人员导入失败。");
-    }
-  };
-
   const visibleHours = rows.reduce(
     (sum, row) => sum + row.daily_cells.reduce((cellSum, cell) => cellSum + cell.hours, 0),
     0
@@ -168,25 +213,49 @@ export default function ScheduleBoard() {
 
   return (
     <section className="page-grid">
+      <CurrentScheduleBanner loading={loading} overview={overview} schedule={board?.schedule} />
+
       <div className="panel">
         <div className="panel-header">
           <div>
             <h3 className="panel-title">生产排班表</h3>
             <p className="panel-subtitle">
-              参考 Excel 排班计划表展示：左侧固定任务信息，右侧按日期拆分每日占用工时。
+              现场复核每天工段、设备或人员在做什么，配置维护统一回到基础数据页面。
             </p>
           </div>
           <div className="panel-actions">
-            <Link className="button ghost" to="/schedule-results">
+            <Link className="button ghost" to={buildSchedulePath("/schedule-results", scheduleId)}>
               回到结果
             </Link>
-            <Link className="button ghost" to="/gantt">
+            <Link className="button ghost" to={buildSchedulePath("/dispatch", scheduleId)}>
+              派工与工时
+            </Link>
+            <Link className="button ghost" to={buildSchedulePath("/gantt", scheduleId)}>
               查看甘特图
             </Link>
           </div>
         </div>
 
-        <form className="form-grid" onSubmit={handleSubmit}>
+        <form className="form-grid compact-filter-grid" onSubmit={handleSubmit}>
+          <label className="field-label">
+            视图
+            <select
+              className="field-input"
+              value={filters.view_mode}
+              onChange={(event) => {
+                const nextFilters = { ...filters, view_mode: event.target.value };
+                setFilters(nextFilters);
+                setSelectedGroup("all");
+                loadBoard(nextFilters);
+              }}
+            >
+              {viewModes.map((mode) => (
+                <option key={mode.value} value={mode.value}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="field-label">
             工段
             <select
@@ -201,26 +270,6 @@ export default function ScheduleBoard() {
                 </option>
               ))}
             </select>
-          </label>
-          <label className="field-label">
-            开始日期
-            <input
-              className="field-input"
-              type="date"
-              value={filters.start_date}
-              onChange={(event) => setFilters({ ...filters, start_date: event.target.value })}
-            />
-          </label>
-          <label className="field-label">
-            天数
-            <input
-              className="field-input"
-              type="number"
-              min="1"
-              max="90"
-              value={filters.days}
-              onChange={(event) => setFilters({ ...filters, days: event.target.value })}
-            />
           </label>
           <label className="field-label">
             工单
@@ -238,29 +287,18 @@ export default function ScheduleBoard() {
             </select>
           </label>
           <label className="field-label">
-            视图
-            <select
+            日期跨度
+            <input
               className="field-input"
-              value={filters.view_mode}
-              onChange={(event) => setFilters({ ...filters, view_mode: event.target.value })}
-            >
-              {viewModes.map((mode) => (
-                <option key={mode.value} value={mode.value}>
-                  {mode.label}
-                </option>
-              ))}
-            </select>
+              type="number"
+              min="1"
+              max="90"
+              value={filters.days}
+              onChange={(event) => setFilters({ ...filters, days: event.target.value })}
+            />
           </label>
-          <div className="form-actions">
-            <button className="button" type="submit" disabled={loading}>
-              {loading ? "加载中..." : "刷新排班表"}
-            </button>
-          </div>
-        </form>
-
-        <div className="board-toolbar">
-          <label className="field-label board-search">
-            搜索任务
+          <label className="field-label">
+            搜索
             <input
               className="field-input"
               value={query}
@@ -268,6 +306,14 @@ export default function ScheduleBoard() {
               placeholder="图号、工单、零件、人员"
             />
           </label>
+          <div className="form-actions">
+            <button className="button" type="submit" disabled={loading}>
+              {loading ? "加载中..." : "刷新"}
+            </button>
+          </div>
+        </form>
+
+        <div className="board-toolbar">
           <div className="board-tool-group">
             <span className="tool-label">日期跨度</span>
             {[7, 14, 30].map((days) => (
@@ -298,22 +344,6 @@ export default function ScheduleBoard() {
               </button>
             ))}
           </div>
-        </div>
-
-        <div className="personnel-import">
-          <label className="field-label">
-            人员表导入
-            <input
-              className="field-input"
-              type="file"
-              accept=".xlsm,.xlsx"
-              onChange={(event) => setPersonnelFile(event.target.files?.[0] || null)}
-            />
-          </label>
-          <button className="button ghost" type="button" onClick={handleImportPersonnel}>
-            导入机台人员
-          </button>
-          {personnelMessage ? <span className="data-secondary">{personnelMessage}</span> : null}
         </div>
 
         {error ? <div className="alert danger">{error}</div> : null}
@@ -413,14 +443,14 @@ export default function ScheduleBoard() {
               <tbody>
                 {rows.map((row) => (
                   <tr
-                    key={row.schedule_item_id}
+                    key={`${row.group_key}-${row.schedule_item_id}`}
                     className={`${row.is_external ? "external-row" : ""} ${row.is_late ? "late-row" : ""}`}
                   >
                     <td className="board-sticky board-info-col">
                       <p className="data-primary">{row.drawing_no}</p>
                       <p className="data-secondary">{`${row.part_no} / ${row.part_name}`}</p>
-                      <p className="data-secondary">{`${row.group_label} / ${toDateInputValue(row.planned_start)}-${toDateInputValue(row.planned_end)}`}</p>
-                      <div className="board-badges">
+                      <p className="data-secondary">{`${row.operation_name} / ${toDateInputValue(row.planned_start)}-${toDateInputValue(row.planned_end)}`}</p>
+                          <div className="board-badges">
                         <StatusBadge tone="info">{row.order_no}</StatusBadge>
                         {row.is_external ? <StatusBadge tone="warning">外协</StatusBadge> : null}
                         {row.is_late ? <StatusBadge tone="danger">逾期</StatusBadge> : null}
@@ -434,7 +464,7 @@ export default function ScheduleBoard() {
                     </td>
                     <td className="board-meta-col">
                       <p className="data-primary">{row.machine_name || "外协"}</p>
-                      <p className="data-secondary">{row.person_name || "未分配"}</p>
+                      <p className="data-secondary">{row.person_name || "未派工"}</p>
                     </td>
                     {row.daily_cells.map((cell, index) => {
                       const column = board.date_columns[index];
@@ -442,14 +472,14 @@ export default function ScheduleBoard() {
                         <td
                           key={`${row.schedule_item_id}-${cell.date}`}
                           className={`board-cell${column?.is_workday ? "" : " rest-day"}`}
-                          title={`${formatDateTime(row.planned_start)} - ${formatDateTime(row.planned_end)}`}
+                          title={`订单：${row.order_no} / 工序：${row.operation_name} / 时间：${formatDateTime(row.planned_start)} - ${formatDateTime(row.planned_end)}`}
                         >
                           {cell.hours > 0 ? (
                             <span
                               className="board-hours"
                               style={{ "--hours-strength": Math.min(cell.hours / 8, 1) }}
                             >
-                              {cell.hours}
+                              {formatHours(cell.hours)}
                             </span>
                           ) : null}
                         </td>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -6,25 +6,52 @@ import {
   getProductionSchedules,
   getProductionSchedulingResult,
   getWorkOrders,
+  deleteWorkOrder,
   runProductionScheduling
 } from "../api/production";
-import SummaryCards from "../components/SummaryCards";
+import DataState from "../components/common/DataState";
 import StatusBadge from "../components/StatusBadge";
 import {
   formatDate,
-  formatDateTime,
   formatDeadlineLabel,
   formatHours,
   getDeadlineTone
 } from "../utils/formatters";
+import { buildSchedulePath, setActiveScheduleId } from "../utils/scheduleContext";
 
 const filters = [
-  { key: "all", label: "全部任务" },
+  { key: "all", label: "全部可排" },
   { key: "late", label: "交期风险" },
   { key: "external", label: "外协相关" }
 ];
 
+function getCapacityHours(operation) {
+  return Number(operation.effective_duration_hours ?? operation.duration_hours ?? 0);
+}
+
+function getRiskRank(tone) {
+  if (tone === "danger") return 0;
+  if (tone === "warning") return 1;
+  if (tone === "neutral") return 2;
+  return 3;
+}
+
+function getOrderScheduleState(order) {
+  if (order.pendingOperationCount === 0) {
+    return { label: `已排 ${order.scheduledOperationCount}`, meta: "可基于历史方案重排", tone: "info" };
+  }
+  if (order.scheduledOperationCount > 0) {
+    return {
+      label: `部分已排 ${order.scheduledOperationCount}/${order.operationCount}`,
+      meta: `待排 ${order.pendingOperationCount} 道`,
+      tone: "warning"
+    };
+  }
+  return { label: `待排 ${order.pendingOperationCount}`, meta: "首次进入排产", tone: "neutral" };
+}
+
 export default function Scheduling() {
+  const hasAutoSelectedOrders = useRef(false);
   const [operations, setOperations] = useState([]);
   const [workOrders, setWorkOrders] = useState([]);
   const [latestResult, setLatestResult] = useState(null);
@@ -36,6 +63,7 @@ export default function Scheduling() {
   const [selectedOrders, setSelectedOrders] = useState(new Set());
   const [historyPlans, setHistoryPlans] = useState([]);
   const [baseScheduleId, setBaseScheduleId] = useState(null);
+  const [deletingOrderId, setDeletingOrderId] = useState(null);
   const [startDate, setStartDate] = useState(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -57,7 +85,9 @@ export default function Scheduling() {
     }
 
     try {
-      setLatestResult(await getProductionSchedulingResult());
+      const latestScheduleResult = await getProductionSchedulingResult();
+      setLatestResult(latestScheduleResult);
+      setActiveScheduleId(latestScheduleResult.schedule.id);
     } catch (requestError) {
       if (requestError?.response?.status !== 404) {
         setError(requestError?.response?.data?.detail || "最新方案加载失败。");
@@ -79,33 +109,38 @@ export default function Scheduling() {
     loadData();
   }, []);
 
-  // Build pending orders list from operations
-  const pendingOrders = useMemo(() => {
+  // Build schedulable orders list from pending and scheduled operations.
+  const schedulableOrders = useMemo(() => {
     const orderMap = new Map();
     for (const op of operations) {
       const order = workOrders.find((wo) => wo.id === op.work_order_id);
       if (!order || orderMap.has(order.id)) continue;
+      const orderOperations = operations.filter((o) => o.work_order_id === order.id);
+      const scheduledCount = orderOperations.filter((o) => o.status === "scheduled").length;
       orderMap.set(order.id, {
         ...order,
-        operationCount: operations.filter((o) => o.work_order_id === order.id).length,
-        totalHours: operations
-          .filter((o) => o.work_order_id === order.id)
-          .reduce((sum, o) => sum + o.duration_hours, 0),
+        operationCount: orderOperations.length,
+        scheduledOperationCount: scheduledCount,
+        pendingOperationCount: orderOperations.length - scheduledCount,
+        totalHours: orderOperations.reduce((sum, o) => sum + getCapacityHours(o), 0),
         deadlineTone: getDeadlineTone(order.due_date),
       });
     }
     return Array.from(orderMap.values()).sort((a, b) => {
+      const riskDelta = getRiskRank(a.deadlineTone) - getRiskRank(b.deadlineTone);
+      if (riskDelta !== 0) return riskDelta;
       if (a.priority !== b.priority) return b.priority - a.priority;
       return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
     });
   }, [operations, workOrders]);
 
-  // Auto-select all pending orders when data loads
+  // Auto-select all schedulable orders when data loads
   useEffect(() => {
-    if (pendingOrders.length > 0 && selectedOrders.size === 0) {
-      setSelectedOrders(new Set(pendingOrders.map((o) => o.id)));
+    if (schedulableOrders.length > 0 && !hasAutoSelectedOrders.current) {
+      setSelectedOrders(new Set(schedulableOrders.map((o) => o.id)));
+      hasAutoSelectedOrders.current = true;
     }
-  }, [pendingOrders]);
+  }, [schedulableOrders]);
 
   const toggleOrder = (orderId) => {
     setSelectedOrders((prev) => {
@@ -120,7 +155,7 @@ export default function Scheduling() {
   };
 
   const selectAll = () => {
-    setSelectedOrders(new Set(pendingOrders.map((o) => o.id)));
+    setSelectedOrders(new Set(schedulableOrders.map((o) => o.id)));
   };
 
   const clearAll = () => {
@@ -132,20 +167,23 @@ export default function Scheduling() {
       setError("请至少选择一张订单。");
       return;
     }
-    if (!window.confirm(`确认对 ${selectedOrders.size} 张订单执行排产？将生成新方案，不覆盖历史方案。`)) {
+    const scopeText = baseScheduleId
+      ? `确认对 ${selectedOrders.size} 张勾选订单执行重排？新方案只包含本次勾选订单，以及历史方案中已锁定计划的订单。`
+      : `确认对 ${selectedOrders.size} 张订单执行排产？将生成新方案，不覆盖历史方案。`;
+    if (!window.confirm(scopeText)) {
       return;
     }
     setRunning(true);
     setError("");
     setMessage("");
     try {
-      const startTime = new Date(`${startDate}T08:00:00`);
       const result = await runProductionScheduling({
-        start_time: startTime.toISOString(),
+        start_date: startDate,
         work_order_ids: Array.from(selectedOrders),
         base_schedule_id: baseScheduleId,
         keep_locked: true,
       });
+      setActiveScheduleId(result.schedule.id);
       setLatestResult(result);
       setMessage(`排产完成，生成方案 ${result.schedule.schedule_no}，共 ${result.items.length} 条明细。`);
       await loadData();
@@ -156,8 +194,35 @@ export default function Scheduling() {
     }
   };
 
+  const handleDeleteOrder = async (order) => {
+    if (
+      !window.confirm(
+        `确认删除订单「${order.order_no}」？相关零件、工序、排产明细和锁定记录会一并删除。`
+      )
+    ) {
+      return;
+    }
+    setDeletingOrderId(order.id);
+    setError("");
+    setMessage("");
+    try {
+      await deleteWorkOrder(order.id);
+      setSelectedOrders((previous) => {
+        const next = new Set(previous);
+        next.delete(order.id);
+        return next;
+      });
+      setMessage(`订单「${order.order_no}」已删除。`);
+      await loadData();
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "订单删除失败。");
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
+
   const filteredOrders = useMemo(() => {
-    return pendingOrders.filter((order) => {
+    return schedulableOrders.filter((order) => {
       if (filter === "late") return order.deadlineTone !== "success";
       if (filter === "external") {
         return operations.some(
@@ -166,65 +231,66 @@ export default function Scheduling() {
       }
       return true;
     });
-  }, [pendingOrders, operations, filter]);
+  }, [schedulableOrders, operations, filter]);
 
-  const totalHours = operations.reduce((sum, op) => sum + op.duration_hours, 0);
+  const totalHours = operations.reduce((sum, op) => sum + getCapacityHours(op), 0);
   const resourceCount = new Set(operations.map((op) => op.work_center_id)).size;
-  const riskCount = pendingOrders.filter((o) => o.deadlineTone !== "success").length;
+  const riskCount = schedulableOrders.filter((o) => o.deadlineTone !== "success").length;
   const selectedCount = selectedOrders.size;
-
-  const cards = [
-    {
-      title: "待排订单",
-      value: pendingOrders.length,
-      meta: `已选 ${selectedCount} 张`,
-      accent: "#205c52"
-    },
-    {
-      title: "队列工时",
-      value: formatHours(totalHours),
-      meta: `${operations.length} 道工序`,
-      accent: "#2d5d8c"
-    },
-    {
-      title: "资源覆盖",
-      value: resourceCount,
-      meta: "涉及的工段/设备资源",
-      accent: "#b97012"
-    },
-    {
-      title: "交期风险",
-      value: riskCount,
-      meta: riskCount ? "建议优先排程或调整交期" : "当前未见明显风险",
-      accent: "#c44733"
-    }
-  ];
+  const selectedTotalHours = schedulableOrders
+    .filter((order) => selectedOrders.has(order.id))
+    .reduce((sum, order) => sum + order.totalHours, 0);
+  const selectedHistoryPlan = historyPlans.find((plan) => plan.id === baseScheduleId);
+  const latestScheduleId = latestResult?.schedule?.id;
+  const resultPath = buildSchedulePath("/schedule-results", latestScheduleId);
+  const dispatchPath = buildSchedulePath("/dispatch", latestScheduleId);
+  const runSuccessMessage = message.startsWith("排产完成") ? message : "";
+  const noticeMessage = message && !runSuccessMessage ? message : "";
 
   return (
-    <section className="page-grid">
+    <section className="page-grid scheduling-workbench">
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h3 className="panel-title">生产排产驾驶台</h3>
+            <h3 className="panel-title">本次排产设置</h3>
             <p className="panel-subtitle">
-              选择订单范围和开始日期，系统按依赖、资源和班制计算时间。每次排产生成新方案，不覆盖历史。
+              把订单范围、开始日期和历史方案口径收拢成一次明确的排产命令。
             </p>
           </div>
           <div className="panel-actions">
             <Link className="button ghost" to="/work-order-import">
               导入工单
             </Link>
-            <button className="button secondary" type="button" disabled={running || selectedCount === 0} onClick={handleRun}>
-              {running ? "排产中..." : `执行排产 (${selectedCount})`}
-            </button>
-            <Link className="button ghost" to="/schedule-results">
-              查看结果
-            </Link>
           </div>
         </div>
 
-        {message ? <div className="alert success">{message}</div> : null}
         {error ? <div className="alert danger">{error}</div> : null}
+        {noticeMessage ? <div className="alert success">{noticeMessage}</div> : null}
+
+        <div className="schedule-setting-grid">
+          <div className="setting-card">
+            <span>已选订单数</span>
+            <strong>{selectedCount}</strong>
+          </div>
+          <div className="setting-card">
+            <span>总产能工时（按零件数量折算）</span>
+            <strong>{formatHours(selectedTotalHours)}</strong>
+          </div>
+          <div className="setting-card">
+            <span>开始日期</span>
+            <strong>{startDate}</strong>
+          </div>
+          <div className="setting-card">
+            <span>是否基于历史方案</span>
+            <strong>{selectedHistoryPlan ? "是" : "否"}</strong>
+            <small>{selectedHistoryPlan ? selectedHistoryPlan.schedule_no : "全新排产"}</small>
+          </div>
+          <div className="setting-card">
+              <span>是否保留锁定计划订单</span>
+              <strong>是</strong>
+              <small>已锁定计划订单复制原排布</small>
+          </div>
+        </div>
 
         <div className="scheduling-params">
           <label className="field-label compact-field">
@@ -251,17 +317,26 @@ export default function Scheduling() {
               ))}
             </select>
           </label>
-          <span className="param-hint">选择历史方案后，已锁订单将继承原方案排布，未锁订单重新排。</span>
+          <div className="schedule-command-action">
+            <button className="button secondary" type="button" disabled={running || selectedCount === 0} onClick={handleRun}>
+              {running ? "排产中..." : "运行排产"}
+            </button>
+            <div className="command-rule-list">
+              <span>会生成新方案</span>
+              <span>不覆盖历史方案</span>
+              <span>基于历史方案时，只包含勾选订单和已锁定计划订单</span>
+            </div>
+          </div>
         </div>
       </div>
-
-      <SummaryCards cards={cards} loading={loading} />
 
       <div className="panel">
         <div className="panel-header">
           <div>
-            <h3 className="panel-title">待排订单选择</h3>
-            <p className="panel-subtitle">勾选要参与本次排产的订单，未勾选订单不纳入排产范围。</p>
+            <h3 className="panel-title">订单选择</h3>
+            <p className="panel-subtitle">
+              默认显示全部可排订单，交期风险订单置顶；已排订单保留在列表中，便于基于历史方案重排。
+            </p>
           </div>
           <div className="filter-row">
             {filters.map((item) => (
@@ -279,14 +354,39 @@ export default function Scheduling() {
           </div>
         </div>
 
-        {loading ? (
-          <div className="alert info">正在加载待排订单。</div>
-        ) : filteredOrders.length === 0 ? (
-          <div className="empty-state">
-            <h3 className="empty-state-title">暂无待排订单</h3>
-            <p className="empty-state-copy">先在工单导入页上传工艺表并确认入库。</p>
-            <Link className="button" to="/work-order-import">去导入工单</Link>
+        <div className="run-command-strip">
+          <div>
+            <span className="command-label">本次排产范围</span>
+            <strong>{selectedCount ? `${selectedCount} 张订单` : "未选择订单"}</strong>
           </div>
+          <div>
+            <span className="command-label">产能工时（按零件数量折算）</span>
+            <strong>{formatHours(selectedTotalHours)}</strong>
+          </div>
+          <div>
+            <span className="command-label">队列概况</span>
+            <strong>{`${schedulableOrders.length} 张 / ${formatHours(totalHours)}`}</strong>
+          </div>
+          <div>
+            <span className="command-label">交期风险</span>
+            <strong>{`${riskCount} 张置顶`}</strong>
+          </div>
+          <div>
+            <span className="command-label">资源覆盖</span>
+            <strong>{`${resourceCount} 个资源`}</strong>
+          </div>
+        </div>
+
+        {loading ? (
+          <DataState message="正在加载可排订单、工序和历史方案。" title="加载排产队列" />
+        ) : filteredOrders.length === 0 ? (
+          <DataState
+            actionLabel="去导入工单"
+            actionTo="/work-order-import"
+            message="先在工单导入页上传工艺表并确认入库。"
+            title="暂无可排订单"
+            tone="warning"
+          />
         ) : (
           <div className="table-shell">
             <table className="data-table">
@@ -319,57 +419,103 @@ export default function Scheduling() {
                   <th>产品</th>
                   <th>数量</th>
                   <th>工序数</th>
-                  <th>工时</th>
+                  <th>产能工时（按零件数量折算）</th>
                   <th>交期</th>
                   <th>优先级</th>
-                  <th>状态</th>
+                  <th>排产状态</th>
+                  <th>交期状态</th>
+                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredOrders.map((order) => (
-                  <tr key={order.id} className={selectedOrders.has(order.id) ? "" : "row-disabled"}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={selectedOrders.has(order.id)}
-                        onChange={() => toggleOrder(order.id)}
-                      />
-                    </td>
-                    <td>
-                      <p className="data-primary">{order.order_no}</p>
-                    </td>
-                    <td>{order.customer}</td>
-                    <td>{order.product_name}</td>
-                    <td>{order.quantity}</td>
-                    <td>{order.operationCount}</td>
-                    <td>{formatHours(order.totalHours)}</td>
-                    <td>
-                      <p className="data-primary">{formatDate(order.due_date)}</p>
-                      <p className="data-secondary">{formatDeadlineLabel(order.due_date)}</p>
-                    </td>
-                    <td>{`P${order.priority}`}</td>
-                    <td>
-                      <StatusBadge tone={order.deadlineTone}>
-                        {order.deadlineTone === "danger" ? "已逾期" : order.deadlineTone === "warning" ? "紧迫" : "可控"}
-                      </StatusBadge>
-                    </td>
-                  </tr>
-                ))}
+                {filteredOrders.map((order) => {
+                  const scheduleState = getOrderScheduleState(order);
+                  const rowClassName = [
+                    selectedOrders.has(order.id) ? "" : "row-disabled",
+                    order.scheduledOperationCount > 0 ? "scheduled-order-row" : "",
+                    order.deadlineTone !== "success" ? "risk-order-row" : ""
+                  ].filter(Boolean).join(" ");
+                  return (
+                    <tr key={order.id} className={rowClassName}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={selectedOrders.has(order.id)}
+                          onChange={() => toggleOrder(order.id)}
+                        />
+                      </td>
+                      <td>
+                        <p className="data-primary">{order.order_no}</p>
+                        {order.deadlineTone !== "success" ? <p className="data-secondary danger-text">交期风险置顶</p> : null}
+                      </td>
+                      <td>{order.customer}</td>
+                      <td>{order.product_name}</td>
+                      <td>{order.quantity}</td>
+                      <td>{order.operationCount}</td>
+                      <td>{formatHours(order.totalHours)}</td>
+                      <td>
+                        <p className="data-primary">{formatDate(order.due_date)}</p>
+                        <p className="data-secondary">{formatDeadlineLabel(order.due_date)}</p>
+                      </td>
+                      <td>{`P${order.priority}`}</td>
+                      <td>
+                        <StatusBadge tone={scheduleState.tone}>{scheduleState.label}</StatusBadge>
+                        <p className="data-secondary">{scheduleState.meta}</p>
+                      </td>
+                      <td>
+                        <StatusBadge tone={order.deadlineTone}>
+                          {order.deadlineTone === "danger" ? "已逾期" : order.deadlineTone === "warning" ? "紧迫" : "可控"}
+                        </StatusBadge>
+                      </td>
+                      <td>
+                        <div className="row-actions">
+                          <Link
+                            className="button small ghost"
+                            to={`/scheduling/orders/${order.id}${latestScheduleId ? `?schedule_id=${latestScheduleId}` : ""}`}
+                          >
+                            详情
+                          </Link>
+                          <details className="row-more">
+                            <summary>更多</summary>
+                            <button
+                              className="text-danger-action"
+                              type="button"
+                              disabled={deletingOrderId === order.id || running}
+                              onClick={() => handleDeleteOrder(order)}
+                            >
+                              {deletingOrderId === order.id ? "删除中..." : "删除订单"}
+                            </button>
+                          </details>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {latestResult ? (
-        <div className="panel">
-          <div className="panel-header">
-            <div>
-              <h3 className="panel-title">最新方案</h3>
-              <p className="panel-subtitle">每次排产都会保留一个历史方案。</p>
-            </div>
-            <Link className="button small" to="/schedule-results">查看总览</Link>
+      <div className="panel">
+        <div className="panel-header">
+          <div>
+            <h3 className="panel-title">执行结果</h3>
+            <p className="panel-subtitle">
+              排产成功后从这里继续复核订单完工时间，或进入派工分摊计划工时。
+            </p>
           </div>
+          {latestResult ? (
+            <div className="panel-actions">
+              <Link className="button small" to={resultPath}>查看订单完工时间</Link>
+              <Link className="button small ghost" to={dispatchPath}>进入派工</Link>
+            </div>
+          ) : null}
+        </div>
+
+        {runSuccessMessage ? <div className="alert success result-alert">{runSuccessMessage}</div> : null}
+
+        {latestResult ? (
           <div className="detail-list">
             <div className="detail-row">
               <span className="detail-key">方案编号</span>
@@ -386,8 +532,15 @@ export default function Scheduling() {
               </StatusBadge>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : (
+          <DataState
+            actionLabel="选择订单"
+            actionTo="/scheduling"
+            message="选择订单并运行排产后，这里会显示新方案和后续动作。"
+            title="暂无执行结果"
+          />
+        )}
+      </div>
     </section>
   );
 }

@@ -1,17 +1,24 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
-import { getProductionGanttData, getProductionSchedulingResult } from "../api/production";
+import {
+  getProductionGanttData,
+  getProductionSchedulingOverview,
+  getProductionSchedulingResult
+} from "../api/production";
+import CurrentScheduleBanner from "../components/common/CurrentScheduleBanner";
 import GanttChart from "../components/GanttChart";
 import SummaryCards from "../components/SummaryCards";
 import StatusBadge from "../components/StatusBadge";
 import { formatDateTime, formatHours, getDurationHours } from "../utils/formatters";
+import { buildScheduleBoardPath, buildSchedulePath, setActiveScheduleId } from "../utils/scheduleContext";
 
 export default function Gantt() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const scheduleId = searchParams.get("schedule_id");
   const [data, setData] = useState([]);
   const [latestResult, setLatestResult] = useState(null);
+  const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -25,12 +32,24 @@ export default function Gantt() {
           getProductionGanttData(ganttParams),
           getProductionSchedulingResult(scheduleId ? Number(scheduleId) : null)
         ]);
+        let overviewData = null;
+        try {
+          overviewData = await getProductionSchedulingOverview({ schedule_id: latestData.schedule.id });
+        } catch {
+          overviewData = null;
+        }
         setData(ganttData || []);
         setLatestResult(latestData);
+        setOverview(overviewData);
+        setActiveScheduleId(latestData.schedule.id);
+        if (!scheduleId) {
+          setSearchParams({ schedule_id: String(latestData.schedule.id) }, { replace: true });
+        }
       } catch (requestError) {
         if (requestError?.response?.status === 404) {
           setData([]);
           setLatestResult(null);
+          setOverview(null);
         } else {
           setError(requestError?.response?.data?.detail || "甘特图数据加载失败。");
         }
@@ -69,6 +88,7 @@ export default function Gantt() {
   return (
     <section className="page-grid">
       {error ? <div className="alert danger">{error}</div> : null}
+      <CurrentScheduleBanner loading={loading} overview={overview} schedule={latestResult?.schedule} />
       <SummaryCards cards={cards} loading={loading} />
 
       <div className="panel">
@@ -89,8 +109,14 @@ export default function Gantt() {
         ) : null}
 
         <div className="panel-actions">
-          <Link className="button ghost small" to={`/schedule-results${scheduleId ? `?schedule_id=${scheduleId}` : ""}`}>
+          <Link className="button ghost small" to={buildSchedulePath("/schedule-results", scheduleId || latestResult?.schedule?.id)}>
             回到结果
+          </Link>
+          <Link className="button ghost small" to={buildSchedulePath("/dispatch", scheduleId || latestResult?.schedule?.id)}>
+            派工与工时
+          </Link>
+          <Link className="button ghost small" to={buildScheduleBoardPath(scheduleId || latestResult?.schedule?.id)}>
+            生产排班表
           </Link>
           <Link className="button ghost small" to="/scheduling">
             重新排产

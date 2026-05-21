@@ -144,6 +144,7 @@ MySQL 落地细则：
 - 每次排产生成 `production_schedules`。
 - 每个方案下的任务写入 `production_schedule_items`。
 - 新方案不覆盖旧方案。
+- 排产方案和明细应在排程校验成功后写入；无启用设备、依赖环或缺失依赖等失败场景不能留下空方案。
 
 ### 3. 编码稳定
 
@@ -348,6 +349,7 @@ MySQL 落地细则：
 注意：
 
 - 第二阶段整单锁定不一定直接改 `work_orders.status`，更建议在排产方案维度保存锁定关系，避免不同方案之间状态混乱。
+- 排产驾驶台的可排订单范围包含 `pending` 和 `scheduled`，以支持首次排产后的基于历史方案重排。
 
 #### import_batches
 
@@ -560,6 +562,9 @@ MySQL 落地细则：
 - `schedule_no`
 - `name`
 - `status`
+- `start_time`
+- `base_schedule_id`
+- `run_params_json`
 - `created_at`
 - `updated_at`
 
@@ -567,22 +572,20 @@ MySQL 落地细则：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| start_time | DateTime | 本次排产起始时间 |
-| base_schedule_id | Integer | 基于哪个方案重排 |
-| run_params_json | Text | 排产参数 |
 | issue_summary_json | Text | 排产异常摘要 |
 | created_by | String(80) | 创建人 |
 
-状态建议：
+当前状态口径：
 
-- `draft`
-- `confirmed`
-- `archived`
+- `active`：排产成功生成、可用于看板/导出/后续重排的新方案。
+- `draft`：历史遗留或未发布草稿，当前排产成功路径不再生成。
+- `archived`：后续如需归档历史方案时扩展。
 
 设计理由：
 
 - 第二阶段需要知道这次方案从哪天开始、排了哪些订单、是否基于旧方案。
 - 参数必须落在方案上，后续才能复盘。
+- 方案状态不单独迁移旧数据；历史 `draft` 保持原样，新成功方案写 `active`。
 
 #### production_schedule_items
 
@@ -619,6 +622,13 @@ MySQL 落地细则：
 - 用户看到的是“整单锁定”。
 - 技术上可以锁定该订单在该方案下的所有 `production_schedule_items`。
 - 后续如果需要工序级锁定，不需要改结构。
+
+工时口径：
+
+- `ProductionOperation.duration_hours` 表示 Excel 工序列中的单件工时。
+- 排产时有效产能工时为 `duration_hours * max(Part.quantity, 1)`。
+- `production_schedule_items` 不额外落库有效工时，结果、负荷和导出按已保存的 `start_time` / `end_time` 在工作日历内反推占用工时。
+- 旧历史方案不会因新工时口径被批量重算。
 
 索引建议：
 
@@ -1046,9 +1056,10 @@ MySQL 落地细则：
 当前实际验证：
 
 - 已在 MySQL 数据库 `aps_v2` 上执行迁移到 head。
-- 当前 `alembic_version.version_num` 为 `202605050001`。
+- 当前全量主线 `alembic_version.version_num` 为 `202605190001`。
 - 已确认 PLAN2 表 `production_schedule_order_locks`、`export_batches` 存在。
 - 已确认 PLAN2 字段 `production_schedules.start_time`、`production_schedules.base_schedule_id`、`production_schedules.run_params_json`、`production_schedule_items.locked` 存在。
+- 已确认 PLAN3 表 `business_risk_issue_states` 存在，用于保存经营问题处理状态和备注。
 
 ### 数据迁移策略
 

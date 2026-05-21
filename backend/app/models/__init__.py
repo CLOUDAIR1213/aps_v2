@@ -1,6 +1,7 @@
 from app.models.machine import Machine
 from app.models.order import Order
 from app.models.production import (
+    BusinessRiskIssueState,
     ExportBatch,
     ImportBatch,
     OperationDependency,
@@ -10,6 +11,7 @@ from app.models.production import (
     ProductionOperation,
     ProductionSchedule,
     ProductionScheduleItem,
+    ProductionScheduleItemPersonnelAllocation,
     ProductionScheduleOrderLock,
     ResourceGroup,
     ResourceGroupMember,
@@ -23,6 +25,7 @@ from app.models.routing import Routing, RoutingOperation
 from app.models.task import ScheduleTask
 
 __all__ = [
+    "BusinessRiskIssueState",
     "ExportBatch",
     "ImportBatch",
     "Machine",
@@ -34,6 +37,7 @@ __all__ = [
     "ProductionOperation",
     "ProductionSchedule",
     "ProductionScheduleItem",
+    "ProductionScheduleItemPersonnelAllocation",
     "ProductionScheduleOrderLock",
     "ResourceGroup",
     "ResourceGroupMember",

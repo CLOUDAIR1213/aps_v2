@@ -5,9 +5,12 @@ import re
 from io import BytesIO
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
+from typing import Any
 
 from openpyxl import load_workbook
+from sqlalchemy import delete as sqla_delete
 from sqlalchemy import select, or_
+from sqlalchemy import update as sqla_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -21,6 +24,7 @@ from app.models.production import (
     ProductionOperation,
     ProductionSchedule,
     ProductionScheduleItem,
+    ProductionScheduleItemPersonnelAllocation,
     ProductionScheduleOrderLock,
     ResourceGroup,
     ResourceGroupMember,
@@ -30,11 +34,19 @@ from app.models.production import (
     WorkOrder,
 )
 from app.schemas.production import (
+    DispatchResponse,
+    DispatchTaskRow,
     ImportCommitRequest,
     ImportCommitResponse,
     ImportIssue,
     OperationMappingRuleRead,
+    PersonnelAllocationRead,
+    PersonnelAllocationWrite,
     PersonnelImportResponse,
+    PersonnelOption,
+    PersonnelWorkloadResponse,
+    PersonnelWorkloadRow,
+    PersonnelWorkloadTask,
     ProductionScheduleItemRead,
     ProductionSchedulingResult,
     ResourceGroupRead,
@@ -47,7 +59,7 @@ from app.schemas.production import (
     WorkCenterCreate,
     WorkCenterRead,
 )
-from app.services.production_import_service import ASSEMBLY_JOIN_OPERATIONS
+from app.services.production_import_service import get_parent_no
 
 
 WORK_START = time(8, 0)
@@ -55,6 +67,13 @@ LUNCH_START = time(12, 0)
 LUNCH_END = time(13, 0)
 WORK_END = time(17, 0)
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+PERSONNEL_SHEET_CANDIDATES = ("机台人员", "机组人员")
+
+
+def normalize_schedule_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(second=0, microsecond=0)
+    return value.astimezone().replace(tzinfo=None, second=0, microsecond=0)
 
 
 def slugify_code(name: str) -> str:
@@ -62,6 +81,87 @@ def slugify_code(name: str) -> str:
     if cleaned:
         return cleaned[:40]
     return "WC-" + str(abs(hash(name)) % 100000)
+
+
+def _excel_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _sheet_row_values(sheet, row: int) -> set[str]:
+    return {
+        _excel_text(sheet.cell(row, col).value)
+        for col in range(1, sheet.max_column + 1)
+        if _excel_text(sheet.cell(row, col).value)
+    }
+
+
+def _find_personnel_header_row(sheet) -> int | None:
+    for row in range(1, min(sheet.max_row, 8) + 1):
+        row_values = _sheet_row_values(sheet, row)
+        next_row_values = _sheet_row_values(sheet, row + 1)
+        if "NO." in row_values and {"工号", "姓名"}.intersection(next_row_values):
+            return row
+    return None
+
+
+def _find_personnel_sheet(workbook):
+    for sheet_name in PERSONNEL_SHEET_CANDIDATES:
+        if sheet_name in workbook.sheetnames:
+            return workbook[sheet_name]
+    for sheet in workbook.worksheets:
+        if _find_personnel_header_row(sheet) is not None:
+            return sheet
+    return None
+
+
+def _merged_block_bounds(sheet, row: int, col: int) -> tuple[int, int]:
+    for merged_range in sheet.merged_cells.ranges:
+        if merged_range.min_row <= row <= merged_range.max_row and merged_range.min_col <= col <= merged_range.max_col:
+            return merged_range.min_col, merged_range.max_col
+    return col, col
+
+
+def _merged_block_value(sheet, row: int, col: int) -> str:
+    start_col, _ = _merged_block_bounds(sheet, row, col)
+    return _excel_text(sheet.cell(row, start_col).value)
+
+
+def _personnel_header_blocks(sheet, header_row: int) -> list[tuple[str, int, int]]:
+    blocks: list[tuple[str, int, int]] = []
+    seen_starts: set[int] = set()
+    subheader_row = header_row + 1
+
+    col = 1
+    while col <= sheet.max_column:
+        block_start, block_end = _merged_block_bounds(sheet, header_row, col)
+        if block_start in seen_starts:
+            col += 1
+            continue
+        seen_starts.add(block_start)
+
+        work_center_name = _merged_block_value(sheet, header_row, col)
+        if not work_center_name or work_center_name == "NO.":
+            col = max(col + 1, block_end + 1)
+            continue
+
+        if block_start == block_end:
+            current_subheader = _excel_text(sheet.cell(subheader_row, block_start).value)
+            next_subheader = _excel_text(sheet.cell(subheader_row, block_start + 1).value)
+            if current_subheader in {"工号", "外协"} or (
+                not current_subheader and next_subheader in {"姓名", "外协"}
+            ):
+                block_end = min(block_start + 1, sheet.max_column)
+
+        blocks.append((work_center_name, block_start, block_end))
+        col = max(col + 1, block_end + 1)
+
+    return blocks
 
 
 async def list_work_centers(db: AsyncSession) -> list[WorkCenterRead]:
@@ -100,95 +200,114 @@ async def import_personnel_workbook(
     filename: str,
 ) -> PersonnelImportResponse:
     workbook = load_workbook(BytesIO(content), read_only=False, data_only=True, keep_vba=True)
-    if "机台人员" not in workbook.sheetnames:
-        raise ValueError("Workbook must contain sheet '机台人员'.")
+    sheet = _find_personnel_sheet(workbook)
+    if sheet is None:
+        names = "、".join(PERSONNEL_SHEET_CANDIDATES)
+        raise ValueError(f"Workbook must contain personnel sheet '{names}', or a sheet with NO./工号/姓名 headers.")
 
-    sheet = workbook["机台人员"]
     issues: list[ImportIssue] = []
     imported_people: set[str] = set()
     linked_work_centers: set[int] = set()
     links_created = 0
 
-    header_row = 2
-    for row in range(1, min(sheet.max_row, 8) + 1):
-        row_values = {str(sheet.cell(row, col).value).strip() for col in range(1, min(sheet.max_column, 20) + 1) if sheet.cell(row, col).value is not None}
-        next_row_values = {str(sheet.cell(row + 1, col).value).strip() for col in range(1, min(sheet.max_column, 20) + 1) if sheet.cell(row + 1, col).value is not None}
-        if "NO." in row_values and ("工号" in next_row_values or "姓名" in next_row_values):
-            header_row = row
-            break
+    header_row = _find_personnel_header_row(sheet)
+    if header_row is None:
+        raise ValueError(f"Sheet '{sheet.title}' does not contain a valid NO./工号/姓名 personnel header.")
 
     subheader_row = header_row + 1
     data_start_row = header_row + 2
 
-    col = 2
-    while col <= sheet.max_column:
-        work_center_name = sheet.cell(header_row, col).value
-        if work_center_name is None:
-            col += 1
+    for work_center_name, block_start, block_end in _personnel_header_blocks(sheet, header_row):
+        subheaders = {
+            _excel_text(sheet.cell(subheader_row, col).value)
+            for col in range(block_start, block_end + 1)
+            if _excel_text(sheet.cell(subheader_row, col).value)
+        }
+        if "外协" in subheaders and not {"工号", "姓名"}.issubset(subheaders):
+            issues.append(
+                ImportIssue(
+                    severity="info",
+                    row=header_row,
+                    column=block_start,
+                    field=work_center_name,
+                    message=f"{work_center_name} 为外协工段，人员导入已跳过。",
+                )
+            )
             continue
-        work_center_name = str(work_center_name).strip()
-        if not work_center_name or work_center_name == "NO.":
+
+        person_column_pairs: list[tuple[int, int]] = []
+        col = block_start
+        while col <= block_end:
+            left_header = _excel_text(sheet.cell(subheader_row, col).value)
+            right_header = _excel_text(sheet.cell(subheader_row, col + 1).value) if col + 1 <= sheet.max_column else ""
+            if left_header == "工号" and right_header == "姓名":
+                person_column_pairs.append((col, col + 1))
+                col += 2
+                continue
             col += 1
-            continue
-        left_header = str(sheet.cell(subheader_row, col).value or "").strip()
-        right_header = str(sheet.cell(subheader_row, col + 1).value or "").strip()
-        if left_header != "工号" or right_header != "姓名":
-            col += 2
+
+        if not person_column_pairs:
+            issues.append(
+                ImportIssue(
+                    severity="warning",
+                    row=header_row,
+                    column=block_start,
+                    field=work_center_name,
+                    message=f"{work_center_name} 未找到工号/姓名列，已跳过。",
+                )
+            )
             continue
 
         center = await ensure_work_center(db, work_center_name, False)
         linked_work_centers.add(center.id)
 
-        for row in range(data_start_row, sheet.max_row + 1):
-            employee_no = sheet.cell(row, col).value
-            person_name = sheet.cell(row, col + 1).value if col + 1 <= sheet.max_column else None
-            if person_name in (None, "") and employee_no in (None, ""):
-                continue
-            if person_name in (None, "") or employee_no in (None, ""):
-                issues.append(
-                    ImportIssue(
-                        severity="warning",
-                        row=row,
-                        column=col,
-                        field=work_center_name,
-                        message=f"{work_center_name} 第 {row} 行工号或姓名不完整，已跳过。",
+        for employee_col, name_col in person_column_pairs:
+            for row in range(data_start_row, sheet.max_row + 1):
+                employee_no = _excel_text(sheet.cell(row, employee_col).value)
+                person_name = _excel_text(sheet.cell(row, name_col).value)
+                if not person_name and not employee_no:
+                    continue
+                if not person_name or not employee_no:
+                    issues.append(
+                        ImportIssue(
+                            severity="warning",
+                            row=row,
+                            column=employee_col,
+                            field=work_center_name,
+                            message=f"{work_center_name} 第 {row} 行工号或姓名不完整，已跳过。",
+                        )
+                    )
+                    continue
+
+                result = await db.execute(select(Personnel).where(Personnel.employee_no == employee_no))
+                person = result.scalars().first()
+                if person is None:
+                    person = Personnel(employee_no=employee_no, name=person_name)
+                    db.add(person)
+                    await db.commit()
+                    await db.refresh(person)
+                elif person.name != person_name:
+                    person.name = person_name
+                    await db.commit()
+                    await db.refresh(person)
+                imported_people.add(employee_no)
+
+                link_result = await db.execute(
+                    select(WorkCenterPersonnel).where(
+                        WorkCenterPersonnel.work_center_id == center.id,
+                        WorkCenterPersonnel.person_id == person.id,
                     )
                 )
-                continue
-
-            employee_no = str(employee_no).strip()
-            person_name = str(person_name).strip()
-            result = await db.execute(select(Personnel).where(Personnel.employee_no == employee_no))
-            person = result.scalars().first()
-            if person is None:
-                person = Personnel(employee_no=employee_no, name=person_name)
-                db.add(person)
-                await db.commit()
-                await db.refresh(person)
-            elif person.name != person_name:
-                person.name = person_name
-                await db.commit()
-                await db.refresh(person)
-            imported_people.add(employee_no)
-
-            link_result = await db.execute(
-                select(WorkCenterPersonnel).where(
-                    WorkCenterPersonnel.work_center_id == center.id,
-                    WorkCenterPersonnel.person_id == person.id,
-                )
-            )
-            if link_result.scalars().first() is None:
-                db.add(
-                    WorkCenterPersonnel(
-                        work_center_id=center.id,
-                        person_id=person.id,
-                        sort_order=row - 2,
+                if link_result.scalars().first() is None:
+                    db.add(
+                        WorkCenterPersonnel(
+                            work_center_id=center.id,
+                            person_id=person.id,
+                            sort_order=row - data_start_row,
+                        )
                     )
-                )
-                await db.commit()
-                links_created += 1
-
-        col += 2
+                    await db.commit()
+                    links_created += 1
 
     return PersonnelImportResponse(
         imported_people=len(imported_people),
@@ -350,6 +469,57 @@ async def disable_work_center(db: AsyncSession, work_center_id: int) -> WorkCent
     )
 
 
+async def delete_work_center(db: AsyncSession, work_center_id: int) -> None:
+    center = await db.get(WorkCenter, work_center_id)
+    if not center:
+        raise ValueError("工段不存在。")
+
+    operation_ref = await db.scalar(
+        select(ProductionOperation.id)
+        .where(ProductionOperation.work_center_id == work_center_id)
+        .limit(1)
+    )
+    schedule_ref = await db.scalar(
+        select(ProductionScheduleItem.id)
+        .where(ProductionScheduleItem.work_center_id == work_center_id)
+        .limit(1)
+    )
+    if operation_ref or schedule_ref:
+        raise ValueError("该工段已被工单或历史排产引用，不能物理删除；请使用禁用。")
+
+    machine_ids = list(
+        (
+            await db.execute(
+                select(ResourceMachine.id).where(ResourceMachine.work_center_id == work_center_id)
+            )
+        ).scalars().all()
+    )
+    await db.execute(
+        sqla_delete(ResourceGroupMember).where(
+            ResourceGroupMember.member_type == "work_center",
+            ResourceGroupMember.member_id == work_center_id,
+        )
+    )
+    if machine_ids:
+        await db.execute(
+            sqla_delete(ResourceGroupMember).where(
+                ResourceGroupMember.member_type == "machine",
+                ResourceGroupMember.member_id.in_(machine_ids),
+            )
+        )
+    await db.execute(
+        sqla_delete(OperationMappingRule).where(OperationMappingRule.work_center_id == work_center_id)
+    )
+    await db.execute(
+        sqla_delete(WorkCenterPersonnel).where(WorkCenterPersonnel.work_center_id == work_center_id)
+    )
+    await db.execute(
+        sqla_delete(ResourceMachine).where(ResourceMachine.work_center_id == work_center_id)
+    )
+    await db.execute(sqla_delete(WorkCenter).where(WorkCenter.id == work_center_id))
+    await db.commit()
+
+
 async def create_machine(db: AsyncSession, payload) -> ResourceMachineRead:
     center = await db.get(WorkCenter, payload.work_center_id)
     if not center:
@@ -389,6 +559,27 @@ async def update_machine(db: AsyncSession, machine_id: int, payload) -> Resource
     await db.commit()
     await db.refresh(machine)
     return ResourceMachineRead.model_validate(machine)
+
+
+async def delete_machine(db: AsyncSession, machine_id: int) -> None:
+    machine = await db.get(ResourceMachine, machine_id)
+    if not machine:
+        raise ValueError("设备不存在。")
+    schedule_ref = await db.scalar(
+        select(ProductionScheduleItem.id)
+        .where(ProductionScheduleItem.machine_id == machine_id)
+        .limit(1)
+    )
+    if schedule_ref:
+        raise ValueError("该设备已被历史排产引用，不能物理删除；请改为禁用或停机。")
+    await db.execute(
+        sqla_delete(ResourceGroupMember).where(
+            ResourceGroupMember.member_type == "machine",
+            ResourceGroupMember.member_id == machine_id,
+        )
+    )
+    await db.execute(sqla_delete(ResourceMachine).where(ResourceMachine.id == machine_id))
+    await db.commit()
 
 
 async def list_operation_mapping_rules(db: AsyncSession) -> list[OperationMappingRuleRead]:
@@ -470,6 +661,14 @@ async def update_operation_mapping_rule(db: AsyncSession, rule_id: int, payload)
         updated_at=rule.updated_at,
         work_center_name=rule.work_center.name if rule.work_center else None,
     )
+
+
+async def delete_operation_mapping_rule(db: AsyncSession, rule_id: int) -> None:
+    rule = await db.get(OperationMappingRule, rule_id)
+    if not rule:
+        raise ValueError("映射规则不存在。")
+    await db.delete(rule)
+    await db.commit()
 
 
 async def list_resource_groups(db: AsyncSession) -> list[ResourceGroupRead]:
@@ -561,9 +760,112 @@ async def remove_resource_group_member(db: AsyncSession, group_id: int, member_i
     await db.commit()
 
 
+def _is_missing_mapping_issue(issue: ImportIssue) -> bool:
+    return issue.severity == "error" and (
+        issue.field == "work_center"
+        or "尚未配置映射规则" in issue.message
+        or "未配置映射" in issue.message
+    )
+
+
+def _format_import_issue(issue: ImportIssue) -> str:
+    location = ""
+    if issue.row:
+        location = f"R{issue.row}: "
+    elif issue.column:
+        location = f"C{issue.column}: "
+    return f"{location}{issue.message}"
+
+
+def _sorted_operations(operations: list[ProductionOperation]) -> list[ProductionOperation]:
+    return sorted(operations, key=lambda op: (op.seq_no, op.id or 0))
+
+
+def _build_operation_dependencies(
+    parts: list[Any],
+    operations_by_part_no: dict[str, list[ProductionOperation]],
+) -> tuple[list[OperationDependency], int, int]:
+    dependencies: list[OperationDependency] = []
+    seen_edges: set[tuple[int, int]] = set()
+    sequence_count = 0
+    hierarchy_count = 0
+
+    def add_dependency(operation_id: int, depends_on_operation_id: int, kind: str) -> None:
+        nonlocal sequence_count, hierarchy_count
+        if operation_id == depends_on_operation_id:
+            return
+        edge = (operation_id, depends_on_operation_id)
+        if edge in seen_edges:
+            return
+        seen_edges.add(edge)
+        dependencies.append(
+            OperationDependency(
+                operation_id=operation_id,
+                depends_on_operation_id=depends_on_operation_id,
+            )
+        )
+        if kind == "sequence":
+            sequence_count += 1
+        else:
+            hierarchy_count += 1
+
+    for operations in operations_by_part_no.values():
+        sorted_ops = _sorted_operations(operations)
+        for previous, current in zip(sorted_ops, sorted_ops[1:], strict=False):
+            add_dependency(current.id, previous.id, "sequence")
+
+    part_nos = {part.no for part in parts}
+    children_by_parent: dict[str, list[str]] = defaultdict(list)
+    for part in parts:
+        parent_no = get_parent_no(part.no)
+        if parent_no and parent_no in part_nos:
+            children_by_parent[parent_no].append(part.no)
+
+    finish_anchor_cache: dict[str, list[ProductionOperation]] = {}
+
+    def finish_anchors(part_no: str, visiting: set[str] | None = None) -> list[ProductionOperation]:
+        if part_no in finish_anchor_cache:
+            return finish_anchor_cache[part_no]
+        visiting = visiting or set()
+        if part_no in visiting:
+            return []
+        visiting.add(part_no)
+        own_operations = _sorted_operations(operations_by_part_no.get(part_no, []))
+        if own_operations:
+            anchors = [own_operations[-1]]
+        else:
+            anchors = []
+            for child_no in children_by_parent.get(part_no, []):
+                anchors.extend(finish_anchors(child_no, visiting.copy()))
+        finish_anchor_cache[part_no] = anchors
+        return anchors
+
+    for parent_no, child_nos in children_by_parent.items():
+        parent_operations = _sorted_operations(operations_by_part_no.get(parent_no, []))
+        if not parent_operations:
+            continue
+        parent_first_operation = parent_operations[0]
+        for child_no in child_nos:
+            for child_anchor in finish_anchors(child_no):
+                add_dependency(parent_first_operation.id, child_anchor.id, "hierarchy")
+
+    return dependencies, sequence_count, hierarchy_count
+
+
 async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> ImportCommitResponse:
-    if any(issue.severity == "error" for issue in request.preview.issues):
-        raise ValueError("Import preview contains errors. Fix the workbook before committing.")
+    blocking_issues = [
+        issue
+        for issue in request.preview.issues
+        if (
+            issue.severity == "error"
+            and not (request.create_missing_work_centers and _is_missing_mapping_issue(issue))
+        )
+    ]
+    if blocking_issues:
+        issue_text = "；".join(_format_import_issue(issue) for issue in blocking_issues[:5])
+        if len(blocking_issues) > 5:
+            issue_text = f"{issue_text}；另有 {len(blocking_issues) - 5} 个错误"
+        raise ValueError(f"导入预览仍有不可自动处理的错误：{issue_text}")
 
     existing_order = await db.execute(select(WorkOrder).where(WorkOrder.order_no == request.order.order_no))
     if existing_order.scalars().first():
@@ -577,10 +879,44 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
     )
     rule_map = {rule.source_name: rule for rule in rules_result.scalars().all()}
 
-    # Validate all operations have mapping rules
+    # Validate all operations have mapping rules, or create missing rules when the user chose it.
     unmapped = {op.work_center_name for op in request.preview.operations if op.work_center_name not in rule_map}
     if unmapped:
-        raise ValueError(f"以下工序列尚未配置映射规则：{'、'.join(sorted(unmapped))}。请先在工序映射中配置。")
+        if not request.create_missing_work_centers:
+            raise ValueError(f"以下工序列尚未配置映射规则：{'、'.join(sorted(unmapped))}。请先在工序映射中配置。")
+        for source_name in sorted(unmapped):
+            existing_rule_result = await db.execute(
+                select(OperationMappingRule)
+                .where(OperationMappingRule.source_name == source_name)
+                .options(selectinload(OperationMappingRule.work_center))
+            )
+            existing_rule = existing_rule_result.scalars().first()
+            is_external = any(
+                op.work_center_name == source_name and op.is_external
+                for op in request.preview.operations
+            )
+            if existing_rule:
+                if existing_rule.status != "active":
+                    existing_rule.status = "active"
+                if existing_rule.is_external != is_external:
+                    existing_rule.is_external = is_external
+                if existing_rule.work_center and is_external and not existing_rule.work_center.is_external:
+                    existing_rule.work_center.is_external = True
+                rule_map[source_name] = existing_rule
+                continue
+
+            center = await ensure_work_center(db, source_name, is_external=is_external)
+            rule = OperationMappingRule(
+                source_name=source_name,
+                normalized_name=source_name,
+                work_center_id=center.id,
+                is_external=center.is_external,
+                status="active",
+            )
+            rule.work_center = center
+            db.add(rule)
+            rule_map[source_name] = rule
+        await db.commit()
 
     center_map: dict[str, WorkCenter] = {}
     for operation in request.preview.operations:
@@ -622,8 +958,9 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
     for item in request.preview.parts:
         part = part_map[item.no]
         await db.refresh(part)
-        if item.parent_no and item.parent_no in part_map:
-            part.parent_part_id = part_map[item.parent_no].id
+        parent_no = get_parent_no(item.no)
+        if parent_no and parent_no in part_map:
+            part.parent_part_id = part_map[parent_no].id
     await db.commit()
 
     operations_by_part_no: dict[str, list[ProductionOperation]] = defaultdict(list)
@@ -646,36 +983,10 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
         operations_by_part_no[item.part_no].append(operation)
     await db.commit()
 
-    all_dependencies: list[OperationDependency] = []
-    for part_no, operations in operations_by_part_no.items():
-        operations.sort(key=lambda op: op.seq_no)
-        for previous, current in zip(operations, operations[1:], strict=False):
-            all_dependencies.append(
-                OperationDependency(
-                    operation_id=current.id,
-                    depends_on_operation_id=previous.id,
-                )
-            )
-
-    child_last_operations_by_parent: dict[str, list[ProductionOperation]] = defaultdict(list)
-    for item in request.preview.parts:
-        if not item.parent_no:
-            continue
-        child_operations = sorted(operations_by_part_no.get(item.no, []), key=lambda op: op.seq_no)
-        if child_operations:
-            child_last_operations_by_parent[item.parent_no].append(child_operations[-1])
-
-    for parent_no, child_last_operations in child_last_operations_by_parent.items():
-        for parent_operation in operations_by_part_no.get(parent_no, []):
-            if parent_operation.name not in ASSEMBLY_JOIN_OPERATIONS:
-                continue
-            for child_operation in child_last_operations:
-                all_dependencies.append(
-                    OperationDependency(
-                        operation_id=parent_operation.id,
-                        depends_on_operation_id=child_operation.id,
-                    )
-                )
+    all_dependencies, sequence_dependency_count, hierarchy_dependency_count = _build_operation_dependencies(
+        request.preview.parts,
+        operations_by_part_no,
+    )
 
     if all_dependencies:
         db.add_all(all_dependencies)
@@ -687,12 +998,56 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
         part_count=len(part_map),
         operation_count=sum(len(items) for items in operations_by_part_no.values()),
         dependency_count=len(all_dependencies),
+        sequence_dependency_count=sequence_dependency_count,
+        hierarchy_dependency_count=hierarchy_dependency_count,
     )
 
 
 async def list_work_orders(db: AsyncSession) -> list[WorkOrder]:
     result = await db.execute(select(WorkOrder).order_by(WorkOrder.status, WorkOrder.due_date, WorkOrder.id))
     return list(result.scalars().all())
+
+
+async def delete_work_order(db: AsyncSession, work_order_id: int) -> None:
+    work_order = await db.get(WorkOrder, work_order_id)
+    if not work_order:
+        raise ValueError("订单不存在。")
+
+    operation_ids = select(ProductionOperation.id).where(
+        ProductionOperation.work_order_id == work_order_id
+    )
+    await db.execute(
+        sqla_delete(ProductionScheduleItem).where(
+            ProductionScheduleItem.work_order_id == work_order_id
+        )
+    )
+    await db.execute(
+        sqla_delete(ProductionScheduleOrderLock).where(
+            ProductionScheduleOrderLock.work_order_id == work_order_id
+        )
+    )
+    await db.execute(
+        sqla_delete(OperationDependency).where(
+            or_(
+                OperationDependency.operation_id.in_(operation_ids),
+                OperationDependency.depends_on_operation_id.in_(operation_ids),
+            )
+        )
+    )
+    await db.execute(
+        sqla_update(Part)
+        .where(Part.work_order_id == work_order_id)
+        .values(parent_part_id=None)
+    )
+    await db.execute(
+        sqla_delete(ProductionOperation).where(
+            ProductionOperation.work_order_id == work_order_id
+        )
+    )
+    await db.execute(sqla_delete(Part).where(Part.work_order_id == work_order_id))
+    await db.execute(sqla_delete(ImportBatch).where(ImportBatch.work_order_id == work_order_id))
+    await db.execute(sqla_delete(WorkOrder).where(WorkOrder.id == work_order_id))
+    await db.commit()
 
 
 async def list_personnel(db: AsyncSession) -> list[dict]:
@@ -719,12 +1074,308 @@ async def list_personnel(db: AsyncSession) -> list[dict]:
     ]
 
 
+async def delete_personnel(db: AsyncSession, person_id: int) -> None:
+    person = await db.get(Personnel, person_id)
+    if not person:
+        raise ValueError("人员不存在。")
+    allocation_result = await db.execute(
+        select(ProductionScheduleItemPersonnelAllocation.id)
+        .where(ProductionScheduleItemPersonnelAllocation.person_id == person_id)
+        .limit(1)
+    )
+    if allocation_result.scalar_one_or_none() is not None:
+        raise ValueError("该人员已有派工分摊记录，不能物理删除；请先处理派工记录或将人员状态改为离职。")
+    await db.execute(
+        sqla_delete(ResourceGroupMember).where(
+            ResourceGroupMember.member_type == "personnel",
+            ResourceGroupMember.member_id == person_id,
+        )
+    )
+    await db.execute(
+        sqla_delete(WorkCenterPersonnel).where(WorkCenterPersonnel.person_id == person_id)
+    )
+    await db.execute(sqla_delete(Personnel).where(Personnel.id == person_id))
+    await db.commit()
+
+
+def _serialize_personnel_option(person: Personnel) -> PersonnelOption:
+    return PersonnelOption(
+        id=person.id,
+        employee_no=person.employee_no,
+        name=person.name,
+        status=person.status,
+    )
+
+
+def _serialize_allocation(allocation: ProductionScheduleItemPersonnelAllocation) -> PersonnelAllocationRead:
+    return PersonnelAllocationRead(
+        id=allocation.id,
+        schedule_item_id=allocation.schedule_item_id,
+        person_id=allocation.person_id,
+        employee_no=allocation.person.employee_no,
+        person_name=allocation.person.name,
+        ratio_percent=allocation.ratio_percent,
+        planned_minutes=allocation.planned_minutes,
+    )
+
+
+def _dispatch_row(item: ProductionScheduleItem) -> DispatchTaskRow:
+    operation = item.operation
+    work_order = operation.work_order
+    part = operation.part
+    center = operation.work_center
+    planned_minutes = scheduled_work_minutes(item.start_time, item.end_time)
+    allocations = sorted(item.personnel_allocations, key=lambda row: (row.person.name, row.person_id))
+    serialized_allocations = [_serialize_allocation(allocation) for allocation in allocations]
+    assigned_minutes = sum(allocation.planned_minutes for allocation in allocations)
+    if not allocations:
+        allocation_status = "unassigned"
+    elif abs(sum(allocation.ratio_percent for allocation in allocations) - 100) <= 0.001:
+        allocation_status = "assigned"
+    else:
+        allocation_status = "partial"
+    return DispatchTaskRow(
+        schedule_item_id=item.id,
+        operation_id=item.operation_id,
+        work_order_id=item.work_order_id,
+        work_center_id=item.work_center_id,
+        machine_id=item.machine_id,
+        order_no=work_order.order_no,
+        customer=work_order.customer,
+        drawing_no=part.drawing_no,
+        part_no=part.no,
+        part_name=part.name,
+        operation_name=operation.name,
+        work_center_name=center.name,
+        machine_name=item.machine.name if item.machine else None,
+        is_external=item.is_external,
+        locked=item.locked,
+        planned_start=item.start_time,
+        planned_end=item.end_time,
+        planned_minutes=planned_minutes,
+        assigned_minutes=assigned_minutes,
+        allocation_status=allocation_status,
+        allocations=serialized_allocations,
+    )
+
+
+async def get_dispatch_data(
+    db: AsyncSession,
+    schedule_id: int,
+    work_order_id: int | None = None,
+    work_center_id: int | None = None,
+    person_id: int | None = None,
+    allocation_status: str | None = None,
+) -> DispatchResponse:
+    schedule = await db.get(ProductionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("排产方案不存在。")
+
+    query = (
+        select(ProductionScheduleItem)
+        .where(ProductionScheduleItem.schedule_id == schedule_id)
+        .options(
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.machine),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
+        )
+        .order_by(
+            ProductionScheduleItem.start_time,
+            ProductionScheduleItem.work_center_id,
+            ProductionScheduleItem.sequence_on_resource,
+            ProductionScheduleItem.id,
+        )
+    )
+    if work_order_id is not None:
+        query = query.where(ProductionScheduleItem.work_order_id == work_order_id)
+    if work_center_id is not None:
+        query = query.where(ProductionScheduleItem.work_center_id == work_center_id)
+
+    result = await db.execute(query)
+    rows = [_dispatch_row(item) for item in result.scalars().all()]
+
+    if person_id is not None:
+        rows = [
+            row
+            for row in rows
+            if any(allocation.person_id == person_id for allocation in row.allocations)
+        ]
+
+    if allocation_status:
+        if allocation_status not in {"assigned", "unassigned", "partial"}:
+            raise ValueError("allocation_status must be assigned, unassigned or partial.")
+        rows = [row for row in rows if row.allocation_status == allocation_status]
+
+    people_result = await db.execute(
+        select(Personnel)
+        .where(Personnel.status == "active")
+        .order_by(Personnel.name, Personnel.employee_no)
+    )
+    people = [_serialize_personnel_option(person) for person in people_result.scalars().all()]
+    return DispatchResponse(schedule=schedule, personnel=people, tasks=rows)
+
+
+async def save_personnel_allocations(
+    db: AsyncSession,
+    schedule_item_id: int,
+    allocations: list[PersonnelAllocationWrite],
+) -> list[PersonnelAllocationRead]:
+    item = await db.get(
+        ProductionScheduleItem,
+        schedule_item_id,
+        options=[
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
+        ],
+    )
+    if item is None:
+        raise ValueError("排产明细不存在。")
+    if not allocations:
+        raise ValueError("至少需要分配一名人员，且占比合计必须为 100%。")
+
+    person_ids = [allocation.person_id for allocation in allocations]
+    if len(person_ids) != len(set(person_ids)):
+        raise ValueError("同一个人员不能在同一任务中重复分配。")
+
+    ratio_sum = 0.0
+    for allocation in allocations:
+        if allocation.ratio_percent <= 0 or allocation.ratio_percent > 100:
+            raise ValueError("人员占比必须大于 0 且不超过 100%。")
+        ratio_sum += allocation.ratio_percent
+    if abs(ratio_sum - 100) > 0.001:
+        raise ValueError("人员占比合计必须为 100%。")
+
+    people_result = await db.execute(select(Personnel).where(Personnel.id.in_(person_ids)))
+    people_by_id = {person.id: person for person in people_result.scalars().all()}
+    missing_ids = [person_id for person_id in person_ids if person_id not in people_by_id]
+    if missing_ids:
+        raise ValueError(f"人员不存在：{', '.join(str(person_id) for person_id in missing_ids)}。")
+    inactive = [person.name for person in people_by_id.values() if person.status != "active"]
+    if inactive:
+        raise ValueError(f"以下人员不是在职状态：{'、'.join(sorted(inactive))}。")
+
+    total_minutes = scheduled_work_minutes(item.start_time, item.end_time)
+    planned_minutes = _allocation_planned_minutes(
+        total_minutes,
+        [allocation.ratio_percent for allocation in allocations],
+    )
+
+    await db.execute(
+        sqla_delete(ProductionScheduleItemPersonnelAllocation)
+        .where(ProductionScheduleItemPersonnelAllocation.schedule_item_id == schedule_item_id)
+    )
+    for allocation, minutes in zip(allocations, planned_minutes):
+        db.add(
+            ProductionScheduleItemPersonnelAllocation(
+                schedule_item_id=schedule_item_id,
+                person_id=allocation.person_id,
+                ratio_percent=allocation.ratio_percent,
+                planned_minutes=minutes,
+            )
+        )
+
+    await db.commit()
+    refreshed = await db.execute(
+        select(ProductionScheduleItemPersonnelAllocation)
+        .where(ProductionScheduleItemPersonnelAllocation.schedule_item_id == schedule_item_id)
+        .options(selectinload(ProductionScheduleItemPersonnelAllocation.person))
+        .order_by(ProductionScheduleItemPersonnelAllocation.id)
+    )
+    return [_serialize_allocation(allocation) for allocation in refreshed.scalars().all()]
+
+
+async def get_personnel_workload(db: AsyncSession, schedule_id: int) -> PersonnelWorkloadResponse:
+    schedule = await db.get(ProductionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("排产方案不存在。")
+
+    result = await db.execute(
+        select(ProductionScheduleItemPersonnelAllocation)
+        .join(
+            ProductionScheduleItem,
+            ProductionScheduleItem.id == ProductionScheduleItemPersonnelAllocation.schedule_item_id,
+        )
+        .where(ProductionScheduleItem.schedule_id == schedule_id)
+        .options(
+            selectinload(ProductionScheduleItemPersonnelAllocation.person),
+            selectinload(ProductionScheduleItemPersonnelAllocation.schedule_item)
+            .selectinload(ProductionScheduleItem.operation)
+            .selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItemPersonnelAllocation.schedule_item)
+            .selectinload(ProductionScheduleItem.operation)
+            .selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItemPersonnelAllocation.schedule_item)
+            .selectinload(ProductionScheduleItem.operation)
+            .selectinload(ProductionOperation.work_center),
+        )
+        .order_by(ProductionScheduleItemPersonnelAllocation.person_id, ProductionScheduleItem.start_time)
+    )
+    grouped: dict[int, dict] = {}
+    for allocation in result.scalars().all():
+        item = allocation.schedule_item
+        operation = item.operation
+        work_order = operation.work_order
+        part = operation.part
+        center = operation.work_center
+        row = grouped.setdefault(
+            allocation.person_id,
+            {
+                "person": allocation.person,
+                "planned_minutes": 0,
+                "orders": set(),
+                "work_centers": set(),
+                "tasks": [],
+            },
+        )
+        row["planned_minutes"] += allocation.planned_minutes
+        row["orders"].add(work_order.id)
+        row["work_centers"].add(center.id)
+        row["tasks"].append(
+            PersonnelWorkloadTask(
+                schedule_item_id=item.id,
+                work_order_id=work_order.id,
+                order_no=work_order.order_no,
+                drawing_no=part.drawing_no,
+                part_no=part.no,
+                operation_name=operation.name,
+                work_center_name=center.name,
+                planned_start=item.start_time,
+                planned_end=item.end_time,
+                ratio_percent=allocation.ratio_percent,
+                planned_minutes=allocation.planned_minutes,
+            )
+        )
+
+    rows: list[PersonnelWorkloadRow] = []
+    for data in grouped.values():
+        person = data["person"]
+        rows.append(
+            PersonnelWorkloadRow(
+                person_id=person.id,
+                employee_no=person.employee_no,
+                person_name=person.name,
+                task_count=len(data["tasks"]),
+                planned_minutes=data["planned_minutes"],
+                order_count=len(data["orders"]),
+                work_center_count=len(data["work_centers"]),
+                tasks=data["tasks"],
+            )
+        )
+    rows.sort(key=lambda row: row.planned_minutes, reverse=True)
+    return PersonnelWorkloadResponse(schedule=schedule, rows=rows)
+
+
 async def list_pending_operations(db: AsyncSession) -> list[dict]:
     result = await db.execute(
         select(ProductionOperation)
         .join(WorkCenter, ProductionOperation.work_center_id == WorkCenter.id)
         .where(
-            ProductionOperation.status == "pending",
+            ProductionOperation.status.in_(["pending", "scheduled"]),
             WorkCenter.status == "active",
         )
         .options(
@@ -732,7 +1383,7 @@ async def list_pending_operations(db: AsyncSession) -> list[dict]:
             selectinload(ProductionOperation.part),
             selectinload(ProductionOperation.work_center),
         )
-        .order_by(ProductionOperation.id)
+        .order_by(ProductionOperation.work_order_id, ProductionOperation.seq_no, ProductionOperation.id)
     )
     rows = []
     for operation in result.scalars().all():
@@ -745,6 +1396,8 @@ async def list_pending_operations(db: AsyncSession) -> list[dict]:
                 "name": operation.name,
                 "seq_no": operation.seq_no,
                 "duration_hours": operation.duration_hours,
+                "part_quantity": operation.part.quantity,
+                "effective_duration_hours": effective_operation_duration_hours(operation),
                 "status": operation.status,
                 "order_no": operation.work_order.order_no,
                 "part_no": operation.part.no,
@@ -758,7 +1411,7 @@ async def list_pending_operations(db: AsyncSession) -> list[dict]:
 
 
 def next_work_time(moment: datetime) -> datetime:
-    current = moment.replace(second=0, microsecond=0)
+    current = normalize_schedule_datetime(moment)
     while current.weekday() == 6:
         current = datetime.combine(current.date() + timedelta(days=1), WORK_START)
     if current.time() < WORK_START:
@@ -786,6 +1439,41 @@ def add_work_hours(start: datetime, hours: float) -> datetime:
         if remaining_minutes > 0:
             current = next_work_time(current + timedelta(minutes=1))
     return current
+
+
+def effective_operation_duration_hours(operation: ProductionOperation) -> float:
+    quantity = max(operation.part.quantity if operation.part else 1, 1)
+    return round((operation.duration_hours or 0) * quantity, 3)
+
+
+def scheduled_work_hours(start: datetime, end: datetime) -> float:
+    if end <= start:
+        return 0
+
+    current_day = start.date()
+    last_day = end.date()
+    total = 0.0
+    while current_day <= last_day:
+        total += work_hours_on_day(start, end, current_day)
+        current_day += timedelta(days=1)
+    return round(total, 3)
+
+
+def scheduled_work_minutes(start: datetime, end: datetime) -> int:
+    return max(int(round(scheduled_work_hours(start, end) * 60)), 1)
+
+
+def _allocation_planned_minutes(total_minutes: int, ratios: list[float]) -> list[int]:
+    planned: list[int] = []
+    used = 0
+    for index, ratio in enumerate(ratios):
+        if index == len(ratios) - 1:
+            minutes = max(total_minutes - used, 0)
+        else:
+            minutes = max(int(round(total_minutes * ratio / 100)), 0)
+            used += minutes
+        planned.append(minutes)
+    return planned
 
 
 async def run_production_scheduling(
@@ -895,6 +1583,7 @@ async def run_production_scheduling(
                     ProductionScheduleItem.schedule_id == base_schedule_id,
                     ProductionScheduleItem.work_order_id.in_(locked_order_ids),
                 )
+                .options(selectinload(ProductionScheduleItem.personnel_allocations))
             )
             locked_items = locked_items_result.scalars().all()
 
@@ -918,29 +1607,11 @@ async def run_production_scheduling(
     if not pending_by_id:
         raise ValueError("所有选中订单的工序已被锁定，无需重新排产。请选择其他订单或取消锁定。")
 
-    # Create new schedule
-    schedule = ProductionSchedule(
-        schedule_no=now.strftime("PS-%Y%m%d-%H%M%S-%f"),
-        name=now.strftime("Production Schedule %Y-%m-%d %H:%M:%S"),
-        status="draft",
-        start_time=now,
-        base_schedule_id=base_schedule_id,
-        run_params_json=json.dumps({
-            "start_time": now.isoformat(),
-            "work_order_ids": work_order_ids,
-            "base_schedule_id": base_schedule_id,
-            "keep_locked": keep_locked,
-        }, ensure_ascii=False),
-    )
-    db.add(schedule)
-    await db.commit()
-    await db.refresh(schedule)
-
     completed_end: dict[int, datetime] = {}
     machine_ready: dict[int, datetime] = {}
     external_ready: dict[int, datetime] = {}
     sequence_counter: dict[str, int] = {}
-    schedule_items: list[ProductionScheduleItem] = []
+    planned_items: list[dict] = []
 
     def _find_earliest_start(
         proposed_start: datetime,
@@ -987,9 +1658,10 @@ async def run_production_scheduling(
         )
         start_floor = max(now, dependency_end)
         center = operation.work_center
+        duration_h = effective_operation_duration_hours(operation)
 
         if center.is_external:
-            duration_h = operation.duration_hours or center.default_duration_hours
+            duration_h = duration_h or center.default_duration_hours
             proposed = max(start_floor, external_ready.get(center.id, now))
             intervals = locked_external_intervals.get(center.id, [])
             start_time_val = _find_earliest_start(proposed, duration_h, intervals)
@@ -1006,85 +1678,124 @@ async def run_production_scheduling(
             for candidate in machines:
                 proposed = max(start_floor, machine_ready.get(candidate.id, now))
                 intervals = locked_machine_intervals.get(candidate.id, [])
-                actual_start = _find_earliest_start(proposed, operation.duration_hours, intervals)
-                actual_end = add_work_hours(actual_start, operation.duration_hours)
+                actual_start = _find_earliest_start(proposed, duration_h, intervals)
+                actual_end = add_work_hours(actual_start, duration_h)
                 candidates.append((actual_end, actual_start, candidate))
             end_time, start_time_val, machine = min(candidates, key=lambda item: (item[0], item[1], item[2].id))
             machine_ready[machine.id] = end_time
             resource_key = f"machine-{machine.id}"
 
         sequence_counter[resource_key] = sequence_counter.get(resource_key, 0) + 1
-        item = ProductionScheduleItem(
-            schedule_id=schedule.id,
-            operation_id=operation.id,
-            work_order_id=operation.work_order_id,
-            part_id=operation.part_id,
-            work_center_id=operation.work_center_id,
-            machine_id=machine.id if machine else None,
-            start_time=start_time_val,
-            end_time=end_time,
-            sequence_on_resource=sequence_counter[resource_key],
-            is_external=center.is_external,
+        planned_items.append(
+            {
+                "operation": operation,
+                "operation_id": operation.id,
+                "work_order_id": operation.work_order_id,
+                "part_id": operation.part_id,
+                "work_center_id": operation.work_center_id,
+                "machine_id": machine.id if machine else None,
+                "start_time": start_time_val,
+                "end_time": end_time,
+                "sequence_on_resource": sequence_counter[resource_key],
+                "is_external": center.is_external,
+            }
         )
-        db.add(item)
-        schedule_items.append(item)
-        operation.status = "scheduled"
         completed_end[operation.id] = end_time
         pending_by_id.pop(operation.id)
 
-    # Update work order statuses
-    all_work_order_ids = {op.work_order_id for op in all_operations}
-    for op in all_operations:
-        op.work_order.status = "scheduled"
+    run_at = datetime.utcnow()
+    schedule = ProductionSchedule(
+        schedule_no=run_at.strftime("PS-%Y%m%d-%H%M%S-%f"),
+        name=run_at.strftime("Production Schedule %Y-%m-%d %H:%M:%S"),
+        status="active",
+        start_time=now,
+        base_schedule_id=base_schedule_id,
+        run_params_json=json.dumps(
+            {
+                "start_time": now.isoformat(),
+                "work_order_ids": work_order_ids,
+                "base_schedule_id": base_schedule_id,
+                "keep_locked": keep_locked,
+            },
+            ensure_ascii=False,
+        ),
+    )
 
-    # Copy locked order items from base schedule into new schedule
-    if keep_locked and locked_order_ids:
-        base_items_result = await db.execute(
-            select(ProductionScheduleItem)
-            .where(
-                ProductionScheduleItem.schedule_id == base_schedule_id,
-                ProductionScheduleItem.work_order_id.in_(locked_order_ids),
-            )
-        )
-        for old_item in base_items_result.scalars().all():
-            new_item = ProductionScheduleItem(
-                schedule_id=schedule.id,
-                operation_id=old_item.operation_id,
-                work_order_id=old_item.work_order_id,
-                part_id=old_item.part_id,
-                work_center_id=old_item.work_center_id,
-                machine_id=old_item.machine_id,
-                start_time=old_item.start_time,
-                end_time=old_item.end_time,
-                sequence_on_resource=old_item.sequence_on_resource,
-                is_external=old_item.is_external,
-                locked=True,
-                locked_at=old_item.locked_at,
-                locked_by=old_item.locked_by,
-                lock_reason=old_item.lock_reason,
-            )
-            db.add(new_item)
+    try:
+        db.add(schedule)
+        await db.flush()
 
-        # Copy order lock records to new schedule
-        base_locks_result = await db.execute(
-            select(ProductionScheduleOrderLock).where(
-                ProductionScheduleOrderLock.schedule_id == base_schedule_id,
-                ProductionScheduleOrderLock.work_order_id.in_(locked_order_ids),
-                ProductionScheduleOrderLock.locked == True,
-            )
-        )
-        for old_lock in base_locks_result.scalars().all():
-            new_lock = ProductionScheduleOrderLock(
-                schedule_id=schedule.id,
-                work_order_id=old_lock.work_order_id,
-                locked=True,
-                locked_at=old_lock.locked_at,
-                locked_by=old_lock.locked_by,
-                note=old_lock.note,
-            )
-            db.add(new_lock)
+        for planned in planned_items:
+            operation = planned.pop("operation")
+            db.add(ProductionScheduleItem(schedule_id=schedule.id, **planned))
+            operation.status = "scheduled"
 
-    await db.commit()
+        for op in all_operations:
+            op.work_order.status = "scheduled"
+
+        # Copy locked order items from base schedule into new schedule
+        if keep_locked and locked_order_ids:
+            base_items_result = await db.execute(
+                select(ProductionScheduleItem)
+                .where(
+                    ProductionScheduleItem.schedule_id == base_schedule_id,
+                    ProductionScheduleItem.work_order_id.in_(locked_order_ids),
+                )
+                .options(selectinload(ProductionScheduleItem.personnel_allocations))
+            )
+            for old_item in base_items_result.scalars().all():
+                new_item = ProductionScheduleItem(
+                    schedule_id=schedule.id,
+                    operation_id=old_item.operation_id,
+                    work_order_id=old_item.work_order_id,
+                    part_id=old_item.part_id,
+                    work_center_id=old_item.work_center_id,
+                    machine_id=old_item.machine_id,
+                    start_time=old_item.start_time,
+                    end_time=old_item.end_time,
+                    sequence_on_resource=old_item.sequence_on_resource,
+                    is_external=old_item.is_external,
+                    locked=True,
+                    locked_at=old_item.locked_at,
+                    locked_by=old_item.locked_by,
+                    lock_reason=old_item.lock_reason,
+                )
+                db.add(new_item)
+                await db.flush()
+                for old_allocation in old_item.personnel_allocations:
+                    db.add(
+                        ProductionScheduleItemPersonnelAllocation(
+                            schedule_item_id=new_item.id,
+                            person_id=old_allocation.person_id,
+                            ratio_percent=old_allocation.ratio_percent,
+                            planned_minutes=old_allocation.planned_minutes,
+                        )
+                    )
+
+            # Copy order lock records to new schedule
+            base_locks_result = await db.execute(
+                select(ProductionScheduleOrderLock).where(
+                    ProductionScheduleOrderLock.schedule_id == base_schedule_id,
+                    ProductionScheduleOrderLock.work_order_id.in_(locked_order_ids),
+                    ProductionScheduleOrderLock.locked == True,
+                )
+            )
+            for old_lock in base_locks_result.scalars().all():
+                new_lock = ProductionScheduleOrderLock(
+                    schedule_id=schedule.id,
+                    work_order_id=old_lock.work_order_id,
+                    locked=True,
+                    locked_at=old_lock.locked_at,
+                    locked_by=old_lock.locked_by,
+                    note=old_lock.note,
+                )
+                db.add(new_lock)
+
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
     return await get_production_schedule_result(db, schedule.id)
 
 
@@ -1106,6 +1817,7 @@ def _serialize_schedule_item(item: ProductionScheduleItem) -> ProductionSchedule
         sequence_on_resource=item.sequence_on_resource,
         is_external=item.is_external,
         locked=item.locked,
+        scheduled_duration_hours=scheduled_work_hours(item.start_time, item.end_time),
         order_no=work_order.order_no,
         customer=work_order.customer,
         due_date=work_order.due_date,
@@ -1139,7 +1851,7 @@ def _build_result(schedule: ProductionSchedule, items: list[ProductionScheduleIt
             },
         )
         load["task_count"] += 1
-        load["hours"] += round((item.end_time - item.start_time).total_seconds() / 3600, 3)
+        load["hours"] += item.scheduled_duration_hours
 
         current = order_end_map.get(item.work_order_id)
         if current is None or item.end_time > current["end_time"]:
@@ -1188,6 +1900,9 @@ async def get_production_schedule_result(db: AsyncSession, schedule_id: int) -> 
             selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
             selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
             selectinload(ProductionScheduleItem.machine),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
         )
         .order_by(
             ProductionScheduleItem.work_center_id,
@@ -1234,6 +1949,7 @@ async def get_production_gantt_data(db: AsyncSession, schedule_id: int | None = 
                 "work_center_name": item.work_center_name,
                 "start_time": item.start_time,
                 "end_time": item.end_time,
+                "scheduled_duration_hours": scheduled_work_hours(item.start_time, item.end_time),
                 "sequence_on_machine": item.sequence_on_resource,
                 "is_external": item.is_external,
             }
@@ -1307,6 +2023,9 @@ async def get_schedule_board(
             selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
             selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
             selectinload(ProductionScheduleItem.machine),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
         )
         .order_by(
             ProductionScheduleItem.work_center_id,
@@ -1335,7 +2054,6 @@ async def get_schedule_board(
         start_date = min((item.start_time.date() for item in items), default=datetime.utcnow().date())
 
     date_columns = build_date_columns(start_date, days)
-    person_map = await get_default_person_by_work_center(db)
     rows: list[ScheduleBoardRow] = []
 
     for item in items:
@@ -1343,9 +2061,13 @@ async def get_schedule_board(
         work_order = operation.work_order
         part = operation.part
         center = operation.work_center
-        person = person_map.get(center.id)
-        person_name = person.name if person else "未分配"
         machine_name = item.machine.name if item.machine else None
+        allocations = sorted(item.personnel_allocations, key=lambda row: (row.person.name, row.person_id))
+        allocation_label = (
+            " / ".join(f"{allocation.person.name} {allocation.ratio_percent:g}%" for allocation in allocations)
+            if allocations
+            else "未派工"
+        )
 
         if view_mode == "by_machine":
             if item.machine_id:
@@ -1355,45 +2077,60 @@ async def get_schedule_board(
                 group_key = f"external:{center.id}"
                 group_label = f"{center.name} / 外协"
         elif view_mode == "by_person":
-            group_key = f"person:{person.id}" if person else "person:unassigned"
-            group_label = person_name
+            group_key = ""
+            group_label = ""
         else:
             group_key = f"work_center:{center.id}"
             group_label = center.name
 
-        daily_cells = [
-            ScheduleBoardDailyCell(
-                date=column.date,
-                hours=work_hours_on_day(item.start_time, item.end_time, date.fromisoformat(column.date)),
-            )
+        base_daily_hours = [
+            work_hours_on_day(item.start_time, item.end_time, date.fromisoformat(column.date))
             for column in date_columns
         ]
+        if not any(hours > 0 for hours in base_daily_hours):
+            continue
 
-        rows.append(
-            ScheduleBoardRow(
-                group_key=group_key,
-                group_label=group_label,
-                schedule_item_id=item.id,
-                operation_id=item.operation_id,
-                work_order_id=item.work_order_id,
-                work_center_id=item.work_center_id,
-                order_no=work_order.order_no,
-                drawing_no=part.drawing_no,
-                part_no=part.no,
-                part_name=part.name,
-                customer_name=work_order.customer,
-                quantity=part.quantity,
-                duration_hours=operation.duration_hours,
-                due_date=work_order.due_date,
-                planned_start=item.start_time,
-                planned_end=item.end_time,
-                machine_name=machine_name,
-                person_name=person_name,
-                is_external=item.is_external,
-                is_late=item.end_time > work_order.due_date,
-                daily_cells=daily_cells,
+        row_allocations = allocations if view_mode == "by_person" and allocations else [None]
+        for allocation in row_allocations:
+            ratio = allocation.ratio_percent / 100 if allocation else 1
+            if view_mode == "by_person":
+                group_key = f"person:{allocation.person_id}" if allocation else "person:unassigned"
+                group_label = allocation.person.name if allocation else "未派工"
+                person_name = group_label
+            else:
+                person_name = allocation_label
+
+            daily_cells = [
+                ScheduleBoardDailyCell(date=column.date, hours=round(hours * ratio, 2))
+                for column, hours in zip(date_columns, base_daily_hours)
+            ]
+
+            rows.append(
+                ScheduleBoardRow(
+                    group_key=group_key,
+                    group_label=group_label,
+                    schedule_item_id=item.id,
+                    operation_id=item.operation_id,
+                    work_order_id=item.work_order_id,
+                    work_center_id=item.work_center_id,
+                    order_no=work_order.order_no,
+                    operation_name=operation.name,
+                    drawing_no=part.drawing_no,
+                    part_no=part.no,
+                    part_name=part.name,
+                    customer_name=work_order.customer,
+                    quantity=part.quantity,
+                    duration_hours=round(scheduled_work_hours(item.start_time, item.end_time) * ratio, 2),
+                    due_date=work_order.due_date,
+                    planned_start=item.start_time,
+                    planned_end=item.end_time,
+                    machine_name=machine_name,
+                    person_name=person_name,
+                    is_external=item.is_external,
+                    is_late=item.end_time > work_order.due_date,
+                    daily_cells=daily_cells,
+                )
             )
-        )
 
     rows.sort(key=lambda row: (row.group_label, row.planned_start, row.order_no, row.part_no))
     return ScheduleBoardResponse(
@@ -1555,7 +2292,7 @@ async def export_schedule_to_excel(db: AsyncSession, schedule_id: int) -> bytes:
                 else item.machine.capacity_per_day
             ),
         })
-        load["busy_minutes"] += max(int(round(item.operation.duration_hours * 60)), 1)
+        load["busy_minutes"] += scheduled_work_minutes(item.start_time, item.end_time)
 
     locked_order_ids = await get_locked_order_ids(db, schedule_id)
 
@@ -1647,7 +2384,7 @@ async def export_schedule_to_excel(db: AsyncSession, schedule_id: int) -> bytes:
         ws2.cell(row_idx, 8, op.name)
         ws2.cell(row_idx, 9, item.start_time.strftime("%Y-%m-%d %H:%M"))
         ws2.cell(row_idx, 10, item.end_time.strftime("%Y-%m-%d %H:%M"))
-        ws2.cell(row_idx, 11, round(op.duration_hours, 2))
+        ws2.cell(row_idx, 11, scheduled_work_hours(item.start_time, item.end_time))
         ws2.cell(row_idx, 12, "是" if item.is_external else "否")
         for col in range(1, len(ws2_headers) + 1):
             ws2.cell(row_idx, col).border = thin_border
@@ -1701,10 +2438,6 @@ async def export_schedule_to_excel(db: AsyncSession, schedule_id: int) -> bytes:
     style_header(ws4, len(ws4_headers))
 
     row_idx = 2
-    risk_load_by_resource = {
-        (load["work_center_name"], load["machine_name"]): load
-        for load in load_map.values()
-    }
     for order_items in items_by_order.values():
         wo = order_items[0].operation.work_order
         planned_end = max(it.end_time for it in order_items)
@@ -1713,8 +2446,7 @@ async def export_schedule_to_excel(db: AsyncSession, schedule_id: int) -> bytes:
         delay_days = max((planned_end.date() - wo.due_date.date()).days, 0)
         latest_item = max(order_items, key=lambda it: it.end_time)
         center_name = latest_item.operation.work_center.name
-        machine_name = latest_item.machine.name if latest_item.machine else "外协"
-        load_entry = risk_load_by_resource.get((center_name, machine_name))
+        load_entry = load_map.get((latest_item.work_center_id, latest_item.machine_id))
         cap_per_day = load_entry["capacity_per_day"] if load_entry else 480
         is_bottleneck = load_entry and (load_entry["busy_minutes"] / max(workdays * cap_per_day, 1)) >= 0.9
 

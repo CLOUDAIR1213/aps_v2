@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -295,6 +296,10 @@ class ProductionSchedule(Base):
         back_populates="schedule",
         cascade="all, delete-orphan",
     )
+    business_risk_issue_states: Mapped[list["BusinessRiskIssueState"]] = relationship(
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+    )
 
 
 class ProductionScheduleItem(Base):
@@ -324,6 +329,39 @@ class ProductionScheduleItem(Base):
     schedule: Mapped["ProductionSchedule"] = relationship(back_populates="items")
     operation: Mapped["ProductionOperation"] = relationship(back_populates="schedule_items")
     machine: Mapped["ResourceMachine | None"] = relationship(back_populates="schedule_items")
+    personnel_allocations: Mapped[list["ProductionScheduleItemPersonnelAllocation"]] = relationship(
+        back_populates="schedule_item",
+        cascade="all, delete-orphan",
+    )
+
+
+class ProductionScheduleItemPersonnelAllocation(Base):
+    __tablename__ = "production_schedule_item_personnel_allocations"
+    __table_args__ = (
+        UniqueConstraint("schedule_item_id", "person_id", name="uq_schedule_item_person"),
+        CheckConstraint("ratio_percent > 0 AND ratio_percent <= 100", name="ck_schedule_item_person_ratio"),
+        CheckConstraint("planned_minutes >= 0", name="ck_schedule_item_person_minutes"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    schedule_item_id: Mapped[int] = mapped_column(
+        ForeignKey("production_schedule_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    person_id: Mapped[int] = mapped_column(ForeignKey("personnel.id"), nullable=False, index=True)
+    ratio_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    planned_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    schedule_item: Mapped["ProductionScheduleItem"] = relationship(back_populates="personnel_allocations")
+    person: Mapped["Personnel"] = relationship()
 
 
 class OperationMappingRule(Base):
@@ -437,3 +475,29 @@ class ExportBatch(Base):
     params_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class BusinessRiskIssueState(Base):
+    __tablename__ = "business_risk_issue_states"
+    __table_args__ = (
+        UniqueConstraint("schedule_id", "issue_key", name="uq_schedule_issue_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(
+        ForeignKey("production_schedules.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    issue_key: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="open")
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    schedule: Mapped["ProductionSchedule"] = relationship(back_populates="business_risk_issue_states")

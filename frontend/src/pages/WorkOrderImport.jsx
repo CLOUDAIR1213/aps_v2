@@ -15,6 +15,14 @@ function toLocalInputValue(date = new Date()) {
   return next.toISOString().slice(0, 16);
 }
 
+function isMissingMappingIssue(issue) {
+  return issue?.severity === "error" && (
+    issue.field === "work_center" ||
+    issue.message?.includes("尚未配置映射规则") ||
+    issue.message?.includes("未配置映射")
+  );
+}
+
 export default function WorkOrderImport() {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -22,6 +30,7 @@ export default function WorkOrderImport() {
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [autoCreateMissingMappings, setAutoCreateMissingMappings] = useState(false);
   const [order, setOrder] = useState({
     order_no: "",
     customer: "FUBEI",
@@ -47,9 +56,9 @@ export default function WorkOrderImport() {
         accent: "#2d5d8c"
       },
       {
-        title: "总工时",
-        value: `${summary.total_hours || 0}h`,
-        meta: "来自工艺表非空数字工序列",
+        title: "产能工时（按零件数量折算）",
+        value: `${summary.total_capacity_hours ?? summary.total_hours ?? 0}h`,
+        meta: `Excel 单件工时 ${summary.total_hours || 0}h`,
         accent: "#b97012"
       },
       {
@@ -74,6 +83,7 @@ export default function WorkOrderImport() {
     try {
       const data = await previewWorkOrderImport(file);
       setPreview(data);
+      setAutoCreateMissingMappings(false);
       setOrder((previous) => ({
         ...previous,
         order_no: previous.order_no || file.name.replace(/\.(xlsm|xlsx)$/i, "")
@@ -89,6 +99,10 @@ export default function WorkOrderImport() {
     if (!preview) {
       return;
     }
+    if (hasMissingMappings && !autoCreateMissingMappings) {
+      setError("发现未配置映射的工序，请选择自动添加，或先去工序映射页面手工配置。");
+      return;
+    }
     setCommitting(true);
     setError("");
     setMessage("");
@@ -102,7 +116,7 @@ export default function WorkOrderImport() {
           due_date: new Date(order.due_date).toISOString()
         },
         preview,
-        create_missing_work_centers: true
+        create_missing_work_centers: autoCreateMissingMappings
       };
       const result = await commitWorkOrderImport(payload);
       setMessage(
@@ -115,11 +129,26 @@ export default function WorkOrderImport() {
     }
   };
 
-  const blockingErrors = preview?.issues?.filter((issue) => issue.severity === "error") || [];
   const topOperations = preview?.operations?.slice(0, 12) || [];
   const topParts = preview?.parts?.filter((part) => part.operation_count > 0).slice(0, 10) || [];
+  const partQuantityByNo = useMemo(
+    () => new Map((preview?.parts || []).map((part) => [part.no, Number(part.quantity || 1)])),
+    [preview]
+  );
   const unmappedCount = preview?.operations?.filter((op) => !op.mapped).length || 0;
-  const unmappedNames = [...new Set(preview?.operations?.filter((op) => !op.mapped).map((op) => op.work_center_name) || [])];
+  const unmappedNames = [...new Set(preview?.operations?.filter((op) => !op.mapped).map((op) => op.work_center_name).filter(Boolean) || [])];
+  const mappingErrors = preview?.issues?.filter(isMissingMappingIssue) || [];
+  const otherBlockingErrors = preview?.issues?.filter(
+    (issue) => issue.severity === "error" && !isMissingMappingIssue(issue)
+  ) || [];
+  const blockingErrors = autoCreateMissingMappings
+    ? otherBlockingErrors
+    : [...otherBlockingErrors, ...mappingErrors];
+  const hasMissingMappings = unmappedCount > 0 || mappingErrors.length > 0;
+  const missingMappingCount = unmappedCount || mappingErrors.length;
+  const missingMappingText = unmappedNames.length > 0
+    ? unmappedNames.join("、")
+    : `${mappingErrors.length} 个工序列`;
 
   return (
     <section className="page-grid">
@@ -143,7 +172,13 @@ export default function WorkOrderImport() {
               className="field-input"
               type="file"
               accept=".xlsm,.xlsx"
-              onChange={(event) => setFile(event.target.files?.[0] || null)}
+              onChange={(event) => {
+                setFile(event.target.files?.[0] || null);
+                setPreview(null);
+                setMessage("");
+                setError("");
+                setAutoCreateMissingMappings(false);
+              }}
             />
           </label>
           <label className="field-label">
@@ -214,7 +249,11 @@ export default function WorkOrderImport() {
               onClick={handleCommit}
               disabled={!preview || committing || blockingErrors.length > 0}
             >
-              {committing ? "入库中..." : "确认导入"}
+              {committing
+                ? "入库中..."
+                : autoCreateMissingMappings && hasMissingMappings
+                  ? "自动补齐并导入"
+                  : "确认导入"}
             </button>
           </div>
         </form>
@@ -227,13 +266,32 @@ export default function WorkOrderImport() {
         <>
           <SummaryCards cards={cards} />
 
-          {unmappedCount > 0 ? (
-            <div className="alert danger">
-              <strong>阻塞：</strong>
-              有 {unmappedCount} 道工序未配置映射规则（{unmappedNames.join("、")}），
-              请先
-              <Link to="/operation-mappings"> 配置工序映射 </Link>
-              后再确认导入。
+          {hasMissingMappings ? (
+            <div className={`import-mapping-choice ${autoCreateMissingMappings ? "selected" : ""}`}>
+              <div>
+                <h3 className="data-state-title">发现未配置的工序映射</h3>
+                <p className="data-state-copy">
+                  有 {missingMappingCount} 道工序未配置映射规则：{missingMappingText}。
+                  可在本次导入时自动新增同名工段和映射，也可以先到
+                  <Link className="link-inline" to="/operation-mappings"> 工序映射 </Link>
+                  页面手工配置。
+                </p>
+              </div>
+              <div className="import-mapping-actions">
+                <button
+                  className={`button small ${autoCreateMissingMappings ? "" : "ghost"}`}
+                  type="button"
+                  onClick={() => {
+                    setAutoCreateMissingMappings((value) => !value);
+                    setError("");
+                  }}
+                >
+                  {autoCreateMissingMappings ? "已选择自动添加" : "自动添加缺失映射"}
+                </button>
+                <Link className="button small ghost" to="/operation-mappings">
+                  手工配置
+                </Link>
+              </div>
             </div>
           ) : null}
 
@@ -242,7 +300,7 @@ export default function WorkOrderImport() {
               <div className="panel-header">
                 <div>
                   <h3 className="panel-title">解析出的工序任务</h3>
-                  <p className="panel-subtitle">只展示前 12 条，完整任务会在确认导入后进入排产队列。</p>
+                  <p className="panel-subtitle">只展示前 12 条；Excel 数字按单件工时入库，排产时按零件数量折算产能工时。</p>
                 </div>
               </div>
               <div className="table-shell">
@@ -251,7 +309,7 @@ export default function WorkOrderImport() {
                     <tr>
                       <th>零件</th>
                       <th>工序 / 资源</th>
-                      <th>工时</th>
+                      <th>单件 / 产能工时（按零件数量折算）</th>
                       <th>来源</th>
                       <th>类型</th>
                     </tr>
@@ -267,7 +325,15 @@ export default function WorkOrderImport() {
                           <p className="data-primary">{operation.work_center_name}</p>
                           <p className="data-secondary">{`Seq ${operation.seq_no}`}</p>
                         </td>
-                        <td>{`${operation.duration_hours}h`}</td>
+                        <td>
+                          {`${operation.duration_hours}h / ${
+                            Math.round(
+                              operation.duration_hours *
+                                Math.max(partQuantityByNo.get(operation.part_no) || 1, 1) *
+                                1000
+                            ) / 1000
+                          }h`}
+                        </td>
                         <td>{`R${operation.source_row} / C${operation.source_col}`}</td>
                         <td>
                           <StatusBadge tone={operation.is_external ? "warning" : "info"}>
@@ -290,7 +356,7 @@ export default function WorkOrderImport() {
                 <div className="panel-header">
                   <div>
                     <h3 className="panel-title">零件任务概览</h3>
-                    <p className="panel-subtitle">按工时较明确的零件预览。</p>
+                    <p className="panel-subtitle">按零件数量折算产能工时。</p>
                   </div>
                 </div>
                 <div className="detail-list">
@@ -300,7 +366,11 @@ export default function WorkOrderImport() {
                         <span className="data-primary">{part.drawing_no}</span>
                         <span className="data-secondary">{`${part.no} / ${part.name}`}</span>
                       </span>
-                      <span className="detail-value">{`${part.operation_count} 道 / ${part.total_hours}h`}</span>
+                      <span className="detail-value">
+                        {`${part.operation_count} 道 / ${part.total_hours}h 单件 / ${
+                          part.capacity_hours ?? Math.round(part.total_hours * Math.max(part.quantity || 1, 1) * 1000) / 1000
+                        }h 产能（按零件数量折算）`}
+                      </span>
                     </div>
                   ))}
                 </div>
@@ -320,9 +390,17 @@ export default function WorkOrderImport() {
                         {issue.row ? `R${issue.row}` : issue.column ? `C${issue.column}` : "全局"}
                       </span>
                       <span className="detail-value">
-                        <StatusBadge tone={issue.severity === "error" ? "danger" : "warning"}>
-                          {issue.message}
-                        </StatusBadge>
+                      <StatusBadge
+                        tone={
+                          issue.severity === "error"
+                            ? autoCreateMissingMappings && isMissingMappingIssue(issue)
+                              ? "warning"
+                              : "danger"
+                            : "warning"
+                        }
+                      >
+                        {issue.message}
+                      </StatusBadge>
                       </span>
                     </div>
                   ))}

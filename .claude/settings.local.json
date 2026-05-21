@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"C:\\\\Users\\\\48295\\\\.conda\\\\envs\\\\aps\\\\python.exe\" -m alembic current)",
+      "Bash(C:\\\\Users\\\\48295\\\\.conda\\\\envs\\\\aps\\\\python.exe *)"
+    ]
+  }
+}

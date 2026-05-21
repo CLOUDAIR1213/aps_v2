@@ -116,6 +116,7 @@ class ImportPartPreview(BaseModel):
     is_assembly: bool
     operation_count: int
     total_hours: float
+    capacity_hours: float = 0
 
 
 class ImportOperationPreview(BaseModel):
@@ -152,6 +153,8 @@ class ImportCommitResponse(BaseModel):
     part_count: int
     operation_count: int
     dependency_count: int
+    sequence_dependency_count: int = 0
+    hierarchy_dependency_count: int = 0
 
 
 class ProductionOperationRead(BaseModel):
@@ -164,6 +167,8 @@ class ProductionOperationRead(BaseModel):
     name: str
     seq_no: int
     duration_hours: float
+    part_quantity: int = 1
+    effective_duration_hours: float
     status: str
     order_no: str | None = None
     part_no: str | None = None
@@ -225,6 +230,7 @@ class ProductionScheduleItemRead(BaseModel):
     sequence_on_resource: int
     is_external: bool
     locked: bool = False
+    scheduled_duration_hours: float
     order_no: str
     customer: str
     due_date: datetime
@@ -235,6 +241,88 @@ class ProductionScheduleItemRead(BaseModel):
     work_center_name: str
     machine_name: str | None = None
     machine_code: str | None = None
+
+
+class PersonnelOption(BaseModel):
+    id: int
+    employee_no: str
+    name: str
+    status: str
+
+
+class PersonnelAllocationWrite(BaseModel):
+    person_id: int
+    ratio_percent: float
+
+
+class PersonnelAllocationRead(BaseModel):
+    id: int
+    schedule_item_id: int
+    person_id: int
+    employee_no: str
+    person_name: str
+    ratio_percent: float
+    planned_minutes: int
+
+
+class DispatchTaskRow(BaseModel):
+    schedule_item_id: int
+    operation_id: int
+    work_order_id: int
+    work_center_id: int
+    machine_id: int | None = None
+    order_no: str
+    customer: str
+    drawing_no: str
+    part_no: str
+    part_name: str
+    operation_name: str
+    work_center_name: str
+    machine_name: str | None = None
+    is_external: bool
+    locked: bool = False
+    planned_start: datetime
+    planned_end: datetime
+    planned_minutes: int
+    assigned_minutes: int
+    allocation_status: str
+    allocations: list[PersonnelAllocationRead] = []
+
+
+class DispatchResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    personnel: list[PersonnelOption]
+    tasks: list[DispatchTaskRow]
+
+
+class PersonnelWorkloadTask(BaseModel):
+    schedule_item_id: int
+    work_order_id: int
+    order_no: str
+    drawing_no: str
+    part_no: str
+    operation_name: str
+    work_center_name: str
+    planned_start: datetime
+    planned_end: datetime
+    ratio_percent: float
+    planned_minutes: int
+
+
+class PersonnelWorkloadRow(BaseModel):
+    person_id: int
+    employee_no: str
+    person_name: str
+    task_count: int
+    planned_minutes: int
+    order_count: int
+    work_center_count: int
+    tasks: list[PersonnelWorkloadTask] = []
+
+
+class PersonnelWorkloadResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    rows: list[PersonnelWorkloadRow]
 
 
 class ProductionSchedulingResult(BaseModel):
@@ -293,6 +381,12 @@ class ProductionSchedulingOverview(BaseModel):
     orders: list[ProductionOrderOverviewRow]
 
 
+class OrderScheduleDependencyReason(BaseModel):
+    predecessor_operation_id: int
+    type: str
+    reason: str
+
+
 class OrderScheduleOperation(BaseModel):
     operation_id: int
     operation_name: str
@@ -304,6 +398,8 @@ class OrderScheduleOperation(BaseModel):
     planned_end_time: datetime
     duration_minutes: int
     predecessor_operation_ids: list[int]
+    allocations: list[PersonnelAllocationRead] = []
+    dependency_reasons: list[OrderScheduleDependencyReason] = []
 
 
 class OrderSchedulePart(BaseModel):
@@ -356,6 +452,91 @@ class ScheduleRiskResponse(BaseModel):
     risks: list[ScheduleRiskRow]
 
 
+class ManagementDashboardSummary(BaseModel):
+    schedule_id: int
+    schedule_no: str
+    horizon_days: int
+    total_issues: int
+    high_risk_issues: int
+    medium_risk_issues: int
+    low_risk_issues: int
+    delayed_orders: int
+    due_soon_orders: int
+    bottleneck_resources: int
+    external_risks: int
+    open_issues: int
+    processing_issues: int
+    resolved_issues: int
+    paused_issues: int
+
+
+class ManagementIssueLink(BaseModel):
+    order_detail: str | None = None
+    schedule_board: str | None = None
+    gantt: str | None = None
+
+
+class ManagementIssueRow(BaseModel):
+    issue_key: str
+    schedule_id: int
+    risk_type: str
+    risk_level: str
+    title: str
+    work_order_id: int | None = None
+    order_no: str | None = None
+    customer_name: str | None = None
+    product_name: str | None = None
+    due_date: datetime | None = None
+    planned_start_time: datetime | None = None
+    planned_end_time: datetime | None = None
+    delay_days: int = 0
+    work_center_id: int | None = None
+    work_center_name: str | None = None
+    machine_id: int | None = None
+    machine_name: str | None = None
+    operation_id: int | None = None
+    operation_name: str | None = None
+    utilization: float | None = None
+    reason: str
+    suggestion: str
+    status: str = "open"
+    note: str | None = None
+    updated_at: datetime | None = None
+    links: ManagementIssueLink
+
+
+class ManagementDashboardResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    summary: ManagementDashboardSummary
+    issues: list[ManagementIssueRow]
+    delivery_risks: list[ManagementIssueRow]
+    resource_risks: list[ManagementIssueRow]
+    operation_risks: list[ManagementIssueRow]
+    external_risks: list[ManagementIssueRow]
+    customers: list[str]
+    risk_types: list[str]
+    statuses: list[str]
+
+
+class ManagementIssueStateUpdate(BaseModel):
+    schedule_id: int
+    issue_key: str
+    status: str = "open"
+    note: str | None = None
+
+
+class ManagementIssueStateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    schedule_id: int
+    issue_key: str
+    status: str
+    note: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ScheduleBoardDateColumn(BaseModel):
     date: str
     weekday: str
@@ -375,6 +556,7 @@ class ScheduleBoardRow(BaseModel):
     work_order_id: int
     work_center_id: int
     order_no: str
+    operation_name: str
     drawing_no: str
     part_no: str
     part_name: str

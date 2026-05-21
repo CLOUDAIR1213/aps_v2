@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from io import BytesIO
 from typing import Any
 
@@ -17,7 +18,6 @@ PRIMARY_SHEET = "焊接件明细"
 BASE_COLUMNS = 11
 IGNORED_OPERATION_HEADERS = {"", "备注", "备注1", "flag", "计划日期", "完工日期"}
 EXTERNAL_WORK_CENTERS = {"钣金外", "加工外", "表面处理"}
-ASSEMBLY_JOIN_OPERATIONS = {"拼装", "焊接", "整形"}
 
 
 def _to_text(value: Any) -> str:
@@ -52,10 +52,34 @@ def _is_assembly_no(no: str) -> bool:
     return bool(no) and "." not in no
 
 
-def _parent_no(no: str) -> str | None:
+def get_parent_no(no: str) -> str | None:
     if "." not in no:
         return None
-    return no.split(".", 1)[0]
+    return no.rsplit(".", 1)[0]
+
+
+def _hierarchy_summary(parts: list[ImportPartPreview]) -> dict:
+    part_nos = [part.no for part in parts]
+    no_counts = Counter(part_nos)
+    unique_nos = set(part_nos)
+    child_edges = [
+        (part.no, part.parent_no)
+        for part in parts
+        if part.parent_no and part.parent_no in unique_nos
+    ]
+    parent_nos = {parent_no for _, parent_no in child_edges}
+    leaf_count = len([part for part in parts if part.no not in parent_nos])
+
+    return {
+        "max_depth": max((part.no.count(".") + 1 for part in parts), default=0),
+        "root_count": len([part for part in parts if part.parent_no is None]),
+        "leaf_count": leaf_count,
+        "parent_child_edge_count": len(child_edges),
+        "missing_parent_count": len(
+            [part for part in parts if part.parent_no and part.parent_no not in unique_nos]
+        ),
+        "duplicate_no_count": len([no for no, count in no_counts.items() if count > 1]),
+    }
 
 
 async def parse_work_order_workbook(
@@ -92,7 +116,6 @@ async def parse_work_order_workbook(
     operations: list[ImportOperationPreview] = []
     part_operation_counts: dict[str, int] = {}
     part_hours: dict[str, float] = {}
-    assembly_nos: set[str] = set()
 
     for row_idx in range(2, sheet.max_row + 1):
         no = _to_text(sheet.cell(row_idx, 1).value)
@@ -125,20 +148,19 @@ async def parse_work_order_workbook(
             continue
 
         is_assembly = _is_assembly_no(no)
-        if is_assembly:
-            assembly_nos.add(no)
 
         part = ImportPartPreview(
             no=no,
             drawing_no=drawing_no,
             name=name or drawing_no,
-            parent_no=_parent_no(no),
+            parent_no=get_parent_no(no),
             material=_to_text(sheet.cell(row_idx, 8).value) or None,
             quantity=_to_int(sheet.cell(row_idx, 7).value, 1),
             source_row=row_idx,
             is_assembly=is_assembly,
             operation_count=0,
             total_hours=0,
+            capacity_hours=0,
         )
         parts.append(part)
         part_operation_counts[no] = 0
@@ -212,19 +234,52 @@ async def parse_work_order_workbook(
             part_operation_counts[no] += 1
             part_hours[no] += duration
 
+    part_no_set = {part.no for part in parts}
+    no_counts = Counter(part.no for part in parts)
+    duplicate_nos = {no for no, count in no_counts.items() if count > 1}
     for part in parts:
         part.operation_count = part_operation_counts.get(part.no, 0)
         part.total_hours = round(part_hours.get(part.no, 0), 3)
-        if part.parent_no and part.parent_no not in assembly_nos:
+        part.capacity_hours = round(part.total_hours * max(part.quantity, 1), 3)
+        if part.no in duplicate_nos:
+            issues.append(
+                ImportIssue(
+                    severity="error",
+                    row=part.source_row,
+                    field="no",
+                    message=f"NO {part.no} 重复，无法建立确定的层级依赖。",
+                )
+            )
+        if part.parent_no and part.parent_no not in part_no_set:
             issues.append(
                 ImportIssue(
                     severity="warning",
                     row=part.source_row,
                     field="parent_no",
-                    message=f"子件 {part.no} 未找到上级部件 {part.parent_no}。",
+                    message=f"子件 {part.no} 未找到直接父级 {part.parent_no}，无法建立完整层级依赖。",
                 )
             )
+        if part.operation_count == 0:
+            if any(candidate.parent_no == part.no for candidate in parts):
+                issues.append(
+                    ImportIssue(
+                        severity="warning",
+                        row=part.source_row,
+                        field="no",
+                        message=f"父级 {part.no} 没有工序，仅作为层级节点。",
+                    )
+                )
+            else:
+                issues.append(
+                    ImportIssue(
+                        severity="warning",
+                        row=part.source_row,
+                        field="no",
+                        message=f"叶子件 {part.no} 没有任何工序，不会生成排产任务。",
+                    )
+                )
 
+    part_quantity_by_no = {part.no: part.quantity for part in parts}
     summary = {
         "part_count": len(parts),
         "assembly_count": len([part for part in parts if part.is_assembly]),
@@ -232,8 +287,13 @@ async def parse_work_order_workbook(
         "operation_count": len(operations),
         "work_center_count": len({op.work_center_name for op in operations}),
         "total_hours": round(sum(op.duration_hours for op in operations), 3),
+        "total_capacity_hours": round(
+            sum(op.duration_hours * max(part_quantity_by_no.get(op.part_no, 1), 1) for op in operations),
+            3,
+        ),
         "error_count": len([issue for issue in issues if issue.severity == "error"]),
         "warning_count": len([issue for issue in issues if issue.severity == "warning"]),
+        "hierarchy": _hierarchy_summary(parts),
     }
 
     return ImportPreviewPayload(

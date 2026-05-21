@@ -1,24 +1,71 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { getDashboardSummary } from "../api/dashboard";
-import { getOrders } from "../api/order";
-import { getLatestSchedulingResult } from "../api/scheduling";
-import SummaryCards from "../components/SummaryCards";
-import StatusBadge from "../components/StatusBadge";
 import {
-  formatDate,
-  formatDateTime,
-  formatDeadlineLabel,
-  formatHours,
-  getDeadlineTone,
-  getDurationHours
-} from "../utils/formatters";
+  getOperationMappingRules,
+  getProductionOperations,
+  getProductionSchedules,
+  getProductionSchedulingOverview,
+  getResourceMachines,
+  getScheduleDispatch,
+  getWorkCenters,
+  getWorkOrders
+} from "../api/production";
+import StatusBadge from "../components/StatusBadge";
+import SummaryCards from "../components/SummaryCards";
+import { formatDateTime } from "../utils/formatters";
+import { buildSchedulePath, setActiveScheduleId } from "../utils/scheduleContext";
+
+function statusTone(status) {
+  if (status === "ready") return "success";
+  if (status === "blocked") return "danger";
+  return "warning";
+}
+
+function getPrimaryAction({ hasBaseData, hasOrders, hasSchedule, latestScheduleId }) {
+  if (!hasBaseData) {
+    return {
+      label: "去基础配置",
+      to: "/setup",
+      title: "先把排产前置数据补齐",
+      description: "工段、设备和工序映射缺一项，系统就不能稳定生成排产方案。"
+    };
+  }
+  if (!hasOrders) {
+    return {
+      label: "去工单导入",
+      to: "/work-order-import",
+      title: "下一步导入工单",
+      description: "基础数据已经可用，先把 Excel 工艺表确认入库，再进入排产驾驶台。"
+    };
+  }
+  if (!hasSchedule) {
+    return {
+      label: "去排产驾驶台",
+      to: "/scheduling",
+      title: "下一步生成排产方案",
+      description: "已有可排订单，但还没有方案。选择订单和开始日期后运行排产。"
+    };
+  }
+  return {
+    label: "查看完工时间",
+    to: buildSchedulePath("/schedule-results", latestScheduleId),
+    title: "下一步复核订单完工表",
+    description: "已有排产方案，先从订单预计完工、延期和锁定计划状态开始复核。"
+  };
+}
 
 export default function Dashboard() {
-  const [summary, setSummary] = useState(null);
-  const [orders, setOrders] = useState([]);
-  const [latestResult, setLatestResult] = useState(null);
+  const [data, setData] = useState({
+    centers: [],
+    machines: [],
+    mappings: [],
+    operations: [],
+    orders: [],
+    schedules: [],
+    overview: null,
+    dispatch: null
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -26,34 +73,38 @@ export default function Dashboard() {
     const loadData = async () => {
       setLoading(true);
       setError("");
-
       try {
-        const [summaryData, ordersData] = await Promise.all([
-          getDashboardSummary(),
-          getOrders()
+        const [centers, machines, mappings, operations, orders, scheduleData] = await Promise.all([
+          getWorkCenters(),
+          getResourceMachines(),
+          getOperationMappingRules(),
+          getProductionOperations(),
+          getWorkOrders(),
+          getProductionSchedules()
         ]);
 
-        setSummary(summaryData);
-        setOrders(ordersData);
-      } catch (requestError) {
-        setError(
-          requestError?.response?.data?.detail ||
-            "\u9996\u9875\u6570\u636e\u52a0\u8f7d\u5931\u8d25\u3002"
-        );
-      }
+        const schedules = scheduleData.schedules || [];
+        const latestSchedule = schedules[0] || null;
+        let overview = null;
+        let dispatch = null;
 
-      try {
-        const latestData = await getLatestSchedulingResult();
-        setLatestResult(latestData);
-      } catch (requestError) {
-        if (requestError?.response?.status === 404) {
-          setLatestResult(null);
-        } else {
-          setError(
-            requestError?.response?.data?.detail ||
-              "\u6700\u65b0\u6392\u4ea7\u65b9\u6848\u52a0\u8f7d\u5931\u8d25\u3002"
-          );
+        if (latestSchedule?.id) {
+          setActiveScheduleId(latestSchedule.id);
+          try {
+            overview = await getProductionSchedulingOverview({ schedule_id: latestSchedule.id });
+          } catch {
+            overview = null;
+          }
+          try {
+            dispatch = await getScheduleDispatch(latestSchedule.id);
+          } catch {
+            dispatch = null;
+          }
         }
+
+        setData({ centers, dispatch, machines, mappings, operations, orders, overview, schedules });
+      } catch (requestError) {
+        setError(requestError?.response?.data?.detail || "计划员工作台加载失败。");
       } finally {
         setLoading(false);
       }
@@ -62,265 +113,232 @@ export default function Dashboard() {
     loadData();
   }, []);
 
-  const pendingOrders = orders
-    .filter((order) => order.status === "pending")
-    .sort((left, right) => {
-      const dueGap = new Date(left.due_date).getTime() - new Date(right.due_date).getTime();
-      if (dueGap !== 0) {
-        return dueGap;
-      }
+  const analysis = useMemo(() => {
+    const activeCenters = data.centers.filter((center) => center.status !== "disabled");
+    const internalCenters = activeCenters.filter((center) => !center.is_external);
+    const activeMachines = data.machines.filter((machine) => machine.status === "active");
+    const activeMappings = data.mappings.filter((mapping) => mapping.status !== "disabled");
+    const internalWithoutMachine = internalCenters.filter(
+      (center) => !activeMachines.some((machine) => machine.work_center_id === center.id)
+    );
+    const ordersWithOperations = new Set(data.operations.map((operation) => operation.work_order_id));
+    const schedulableOrders = data.orders.filter((order) => ordersWithOperations.has(order.id));
+    const pendingOperations = data.operations.filter((operation) => operation.status === "pending").length;
 
-      return right.priority - left.priority;
-    });
+    const blockers = [];
+    if (!activeCenters.length) {
+      blockers.push("未配置启用工段");
+    }
+    if (internalWithoutMachine.length) {
+      blockers.push(`${internalWithoutMachine.length} 个内部工段无启用设备`);
+    }
+    if (!activeMappings.length) {
+      blockers.push("未配置可用工序映射");
+    }
 
-  const urgentOrderCount = pendingOrders.filter(
-    (order) => getDeadlineTone(order.due_date) !== "success"
-  ).length;
+    const latestSchedule = data.schedules[0] || null;
+    const workflowBlockers = [...blockers];
+    if (!schedulableOrders.length) {
+      workflowBlockers.push("还没有可排订单");
+    }
+    const unassignedTasks =
+      data.dispatch?.tasks?.filter((task) => task.allocation_status !== "assigned").length ?? 0;
+    const delayedOrders = data.overview?.delayed_orders ?? data.overview?.orders?.filter(
+      (order) => order.status === "delayed"
+    ).length ?? 0;
+    const hasBaseData = blockers.length === 0;
+    const hasOrders = schedulableOrders.length > 0;
+    const hasSchedule = Boolean(latestSchedule);
 
-  const latestItems = latestResult?.items || [];
-  const scheduleStart =
-    latestItems.length > 0
-      ? Math.min(...latestItems.map((item) => new Date(item.start_time).getTime()))
-      : null;
-  const scheduleEnd =
-    latestItems.length > 0
-      ? Math.max(...latestItems.map((item) => new Date(item.end_time).getTime()))
-      : null;
-  const horizonHours =
-    scheduleStart !== null && scheduleEnd !== null
-      ? getDurationHours(scheduleStart, scheduleEnd)
-      : 0;
+    return {
+      activeMachines,
+      blockers,
+      canSchedule: hasBaseData && hasOrders,
+      delayedOrders,
+      hasBaseData,
+      hasOrders,
+      hasSchedule,
+      latestSchedule,
+      pendingOperations,
+      schedulableOrders,
+      unassignedTasks,
+      workflowBlockers
+    };
+  }, [data]);
+
+  const primaryAction = getPrimaryAction({
+    hasBaseData: analysis.hasBaseData,
+    hasOrders: analysis.hasOrders,
+    hasSchedule: analysis.hasSchedule,
+    latestScheduleId: analysis.latestSchedule?.id
+  });
 
   const cards = [
     {
-      title: "\u8bbe\u5907\u603b\u6570",
-      value: summary?.machine_count ?? 0,
-      meta: "\u8d44\u6e90\u6c60\u89c4\u6a21",
-      accent: "#205c52"
+      title: "是否可以排产",
+      value: analysis.canSchedule ? "可以" : "暂不能",
+      meta: analysis.canSchedule ? "可进入排产驾驶台" : "先处理阻塞项",
+      accent: analysis.canSchedule ? "#237a57" : "#c2412f"
     },
     {
-      title: "\u8ba2\u5355\u603b\u6570",
-      value: summary?.order_count ?? 0,
-      meta: "\u5f53\u524d\u7cfb\u7edf\u8ba2\u5355",
-      accent: "#2d5d8c"
+      title: "阻塞项数量",
+      value: analysis.workflowBlockers.length,
+      meta: analysis.workflowBlockers.length ? analysis.workflowBlockers[0] : "主流程无硬阻塞",
+      accent: analysis.workflowBlockers.length ? "#c2412f" : "#237a57"
     },
     {
-      title: "\u5f85\u6392\u4ea7\u8ba2\u5355",
-      value: summary?.pending_order_count ?? 0,
-      meta: urgentOrderCount
-        ? `${urgentOrderCount} \u4e2a\u4ea4\u671f\u9700\u8981\u4f18\u5148\u5173\u6ce8`
-        : "\u961f\u5217\u4ea4\u671f\u76f8\u5bf9\u7a33\u5b9a",
-      accent: "#b97012"
+      title: "可排订单数",
+      value: analysis.schedulableOrders.length,
+      meta: `${analysis.pendingOperations} 道待排工序`,
+      accent: "#315f88"
     },
     {
-      title: "\u5df2\u6392\u4ea7\u8ba2\u5355",
-      value: summary?.scheduled_order_count ?? 0,
-      meta: latestItems.length
-        ? `\u6700\u65b0\u65b9\u6848 ${latestItems.length} \u6761\u660e\u7ec6`
-        : "\u6682\u65e0\u6700\u65b0\u6392\u4ea7\u65b9\u6848",
-      accent: "#7d567e"
+      title: "最新排产方案",
+      value: analysis.latestSchedule?.schedule_no || "--",
+      meta: analysis.latestSchedule ? formatDateTime(analysis.latestSchedule.created_at) : "尚未生成",
+      accent: "#1f5d55"
+    },
+    {
+      title: "延期订单数",
+      value: analysis.delayedOrders,
+      meta: analysis.hasSchedule ? "来自当前方案" : "生成方案后计算",
+      accent: analysis.delayedOrders ? "#c2412f" : "#237a57"
+    },
+    {
+      title: "未派工任务数",
+      value: analysis.unassignedTasks,
+      meta: analysis.hasSchedule ? "当前方案未分摊任务" : "排产后进入派工",
+      accent: analysis.unassignedTasks ? "#d97706" : "#237a57"
     }
   ];
 
   return (
-    <section className="page-grid">
+    <section className="page-grid planner-workbench">
       {error ? <div className="alert danger">{error}</div> : null}
 
-      {!loading && urgentOrderCount > 0 ? (
-        <div className="alert warning">
-          {`\u5f53\u524d\u6709 ${urgentOrderCount} \u4e2a\u5f85\u6392\u4ea7\u8ba2\u5355\u5df2\u903e\u671f\u6216 48 \u5c0f\u65f6\u5185\u5230\u671f\uff0c\u8bf7\u4f18\u5148\u68c0\u67e5\u6392\u4ea7\u961f\u5217\u3002`}
-        </div>
-      ) : null}
-
       <SummaryCards cards={cards} loading={loading} />
+
+      <div className="planner-command-panel">
+        <div className="planner-command-copy">
+          <StatusBadge tone={analysis.canSchedule ? "success" : "danger"}>
+            {analysis.canSchedule ? "可排产" : "不可排产"}
+          </StatusBadge>
+          <h3>{primaryAction.title}</h3>
+          <p>{primaryAction.description}</p>
+        </div>
+        <Link className="button planner-primary-action" to={primaryAction.to}>
+          {primaryAction.label}
+        </Link>
+      </div>
 
       <div className="split-grid">
         <div className="panel">
           <div className="panel-header">
             <div>
-              <h3 className="panel-title">
-                {"\u5173\u952e\u8ba2\u5355\u76d1\u63a7"}
-              </h3>
-              <p className="panel-subtitle">
-                {"\u6309\u4ea4\u671f\u548c\u4f18\u5148\u7ea7\u6392\u5e8f\uff0c\u5148\u770b\u6700\u9700\u8981\u6392\u4ea7\u7684\u5f85\u6392\u4ea7\u8ba2\u5355\u3002"}
-              </p>
+              <h3 className="panel-title">主流程状态</h3>
+              <p className="panel-subtitle">首页只判断下一步，不再展示综合大屏。</p>
             </div>
-            <Link className="link-inline" to="/orders">
-              {"\u8fdb\u5165\u8ba2\u5355\u7ba1\u7406"}
+          </div>
+
+          <div className="planner-flow-list">
+            <div className={`planner-flow-item ${analysis.hasBaseData ? "ready" : "blocked"}`}>
+              <span>1</span>
+              <div>
+                <p className="data-primary">基础配置</p>
+                <p className="data-secondary">
+                  {analysis.hasBaseData
+                    ? `${analysis.activeMachines.length} 台启用设备，工序映射可用`
+                    : "工段、设备或工序映射存在阻塞"}
+                </p>
+              </div>
+              <StatusBadge tone={statusTone(analysis.hasBaseData ? "ready" : "blocked")}>
+                {analysis.hasBaseData ? "已就绪" : "阻塞"}
+              </StatusBadge>
+            </div>
+
+            <div className={`planner-flow-item ${analysis.hasOrders ? "ready" : "blocked"}`}>
+              <span>2</span>
+              <div>
+                <p className="data-primary">工单导入</p>
+                <p className="data-secondary">{`${analysis.schedulableOrders.length} 张可排订单`}</p>
+              </div>
+              <StatusBadge tone={statusTone(analysis.hasOrders ? "ready" : "blocked")}>
+                {analysis.hasOrders ? "已就绪" : "待导入"}
+              </StatusBadge>
+            </div>
+
+            <div className={`planner-flow-item ${analysis.hasSchedule ? "ready" : "risk"}`}>
+              <span>3</span>
+              <div>
+                <p className="data-primary">排产方案</p>
+                <p className="data-secondary">
+                  {analysis.latestSchedule
+                    ? `${analysis.latestSchedule.schedule_no} / ${analysis.latestSchedule.status}`
+                    : "暂无方案"}
+                </p>
+              </div>
+              <StatusBadge tone={statusTone(analysis.hasSchedule ? "ready" : "risk")}>
+                {analysis.hasSchedule ? "已有方案" : "待排产"}
+              </StatusBadge>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h3 className="panel-title">阻塞项</h3>
+              <p className="panel-subtitle">只列影响排产主流程的问题。</p>
+            </div>
+          </div>
+
+          {analysis.workflowBlockers.length ? (
+            <div className="planner-blocker-list">
+              {analysis.workflowBlockers.map((blocker) => (
+                <div className="planner-blocker-item" key={blocker}>
+                  <StatusBadge tone="danger">阻塞</StatusBadge>
+                  <p>{blocker}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="alert success">没有基础数据阻塞。下一步取决于工单和方案状态。</div>
+          )}
+        </div>
+      </div>
+
+      {analysis.latestSchedule ? (
+        <div className="panel">
+          <div className="panel-header">
+            <div>
+              <h3 className="panel-title">当前方案</h3>
+              <p className="panel-subtitle">后续完工表、派工、排班表和甘特图默认围绕这个方案。</p>
+            </div>
+            <Link className="link-inline" to={buildSchedulePath("/schedule-results", analysis.latestSchedule.id)}>
+              订单完工表
             </Link>
           </div>
 
-          {loading ? (
-            <div className="alert info">
-              {"\u6b63\u5728\u52a0\u8f7d\u8ba2\u5355\u548c\u6392\u4ea7\u6982\u89c8\u3002"}
+          <div className="detail-list">
+            <div className="detail-row">
+              <span className="detail-key">方案编号</span>
+              <span className="detail-value">{analysis.latestSchedule.schedule_no}</span>
             </div>
-          ) : pendingOrders.length === 0 ? (
-            <div className="empty-state">
-              <h3 className="empty-state-title">
-                {"\u5f53\u524d\u6ca1\u6709\u5f85\u6392\u4ea7\u8ba2\u5355"}
-              </h3>
-              <p className="empty-state-copy">
-                {"\u53ef\u4ee5\u5148\u5f55\u5165\u65b0\u8ba2\u5355\uff0c\u6216\u76f4\u63a5\u68c0\u67e5\u5df2\u751f\u6548\u7684\u6392\u4ea7\u7ed3\u679c\u3002"}
-              </p>
+            <div className="detail-row">
+              <span className="detail-key">方案名称</span>
+              <span className="detail-value">{analysis.latestSchedule.name}</span>
             </div>
-          ) : (
-            <div className="table-shell">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>{"\u8ba2\u5355"}</th>
-                    <th>{"\u4ea7\u54c1"}</th>
-                    <th>{"\u4f18\u5148\u7ea7"}</th>
-                    <th>{"\u4ea4\u671f"}</th>
-                    <th>{"\u72b6\u6001"}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pendingOrders.slice(0, 6).map((order) => (
-                    <tr key={order.id}>
-                      <td>
-                        <p className="data-primary">{order.order_no}</p>
-                        <p className="data-secondary">{`${order.quantity} pcs`}</p>
-                      </td>
-                      <td>
-                        <p className="data-primary">{order.product_name}</p>
-                        <p className="data-secondary">{formatDate(order.due_date)}</p>
-                      </td>
-                      <td>
-                        <StatusBadge
-                          tone={order.priority >= 2 ? "danger" : order.priority >= 1 ? "warning" : "neutral"}
-                        >
-                          {`P${order.priority}`}
-                        </StatusBadge>
-                      </td>
-                      <td>
-                        <p className="data-primary">{formatDateTime(order.due_date)}</p>
-                        <p className="data-secondary">{formatDeadlineLabel(order.due_date)}</p>
-                      </td>
-                      <td>
-                        <StatusBadge tone={getDeadlineTone(order.due_date)}>
-                          {getDeadlineTone(order.due_date) === "danger"
-                            ? "\u5df2\u903e\u671f"
-                            : getDeadlineTone(order.due_date) === "warning"
-                              ? "\u9700\u5c3d\u5feb\u6392\u4ea7"
-                              : "\u53ef\u63a7"}
-                        </StatusBadge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="detail-row">
+              <span className="detail-key">创建时间</span>
+              <span className="detail-value">{formatDateTime(analysis.latestSchedule.created_at)}</span>
             </div>
-          )}
-        </div>
-
-        <div className="sidebar-stack">
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <h3 className="panel-title">
-                  {"\u6700\u65b0\u6392\u4ea7\u65b9\u6848"}
-                </h3>
-                <p className="panel-subtitle">
-                  {"\u5feb\u901f\u5224\u65ad\u662f\u5426\u5df2\u7ecf\u5f62\u6210\u53ef\u590d\u76d8\u7684\u6392\u4ea7\u7ed3\u679c\u3002"}
-                </p>
-              </div>
-              <Link className="link-inline" to="/schedule-results">
-                {"\u67e5\u770b\u8be6\u60c5"}
-              </Link>
-            </div>
-
-            {!latestResult ? (
-              <div className="empty-state">
-                <h3 className="empty-state-title">
-                  {"\u6682\u65e0\u6392\u4ea7\u65b9\u6848"}
-                </h3>
-                <p className="empty-state-copy">
-                  {"\u8bf7\u5148\u5728\u6392\u4ea7\u9a7e\u9a76\u53f0\u751f\u6210\u4efb\u52a1\u5e76\u6267\u884c\u89c4\u5219\u6392\u4ea7\u3002"}
-                </p>
-              </div>
-            ) : (
-              <div className="detail-list">
-                <div className="detail-row">
-                  <span className="detail-key">{"\u65b9\u6848\u7f16\u53f7"}</span>
-                  <span className="detail-value">{latestResult.schedule.schedule_no}</span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-key">{"\u521b\u5efa\u65f6\u95f4"}</span>
-                  <span className="detail-value">
-                    {formatDateTime(latestResult.schedule.created_at)}
-                  </span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-key">{"\u6392\u4ea7\u4efb\u52a1"}</span>
-                  <span className="detail-value">{latestItems.length}</span>
-                </div>
-                <div className="detail-row">
-                  <span className="detail-key">{"\u6392\u4ea7\u7a97\u53e3"}</span>
-                  <span className="detail-value">
-                    {latestItems.length ? formatHours(horizonHours) : "--"}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="panel">
-            <div className="panel-header">
-              <div>
-                <h3 className="panel-title">
-                  {"\u4eca\u65e5\u5de5\u4f5c\u6307\u5357"}
-                </h3>
-                <p className="panel-subtitle">
-                  {"\u5bf9\u8fd9\u4e2a demo \u7684\u6700\u77ed\u64cd\u4f5c\u8def\u5f84\u8fdb\u884c\u63d0\u9192\u3002"}
-                </p>
-              </div>
-            </div>
-
-            <div className="checklist">
-              <div className="checklist-row">
-                <div className="checklist-copy">
-                  <p className="checklist-title">
-                    {"\u68c0\u67e5\u5f85\u6392\u4ea7\u8ba2\u5355"}
-                  </p>
-                  <p className="checklist-meta">
-                    {"\u786e\u8ba4\u8ba2\u5355\u4f18\u5148\u7ea7\u548c\u4ea4\u671f\u5408\u7406\u3002"}
-                  </p>
-                </div>
-                <StatusBadge tone={pendingOrders.length ? "warning" : "success"}>
-                  {pendingOrders.length ? `\u961f\u5217 ${pendingOrders.length}` : "\u5df2\u6e05\u7a7a"}
-                </StatusBadge>
-              </div>
-              <div className="checklist-row">
-                <div className="checklist-copy">
-                  <p className="checklist-title">
-                    {"\u8fdb\u5165\u6392\u4ea7\u9a7e\u9a76\u53f0"}
-                  </p>
-                  <p className="checklist-meta">
-                    {"\u751f\u6210\u4efb\u52a1\u540e\u518d\u8fd0\u884c\u89c4\u5219\u6392\u4ea7\u3002"}
-                  </p>
-                </div>
-                <Link className="link-inline" to="/scheduling">
-                  {"\u73b0\u5728\u8fdb\u5165"}
-                </Link>
-              </div>
-              <div className="checklist-row">
-                <div className="checklist-copy">
-                  <p className="checklist-title">
-                    {"\u590d\u76d8\u673a\u53f0\u8d1f\u8377"}
-                  </p>
-                  <p className="checklist-meta">
-                    {"\u6392\u4ea7\u540e\u53bb\u7ed3\u679c\u9875\u548c\u7518\u7279\u56fe\u68c0\u67e5\u74f6\u9888\u3002"}
-                  </p>
-                </div>
-                <StatusBadge tone={latestResult ? "info" : "neutral"}>
-                  {latestResult ? "\u5df2\u6709\u65b9\u6848" : "\u5f85\u751f\u6210"}
-                </StatusBadge>
-              </div>
+            <div className="detail-row">
+              <span className="detail-key">方案状态</span>
+              <StatusBadge tone="info">{analysis.latestSchedule.status}</StatusBadge>
             </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </section>
   );
 }

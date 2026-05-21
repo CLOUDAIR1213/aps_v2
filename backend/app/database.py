@@ -7,7 +7,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "mysql+asyncmy://root:root@localhost:3306/aps_v2?charset=utf8mb4",
+    "mysql+asyncmy://root:123456@localhost:3306/aps_v2?charset=utf8mb4",
 )
 
 

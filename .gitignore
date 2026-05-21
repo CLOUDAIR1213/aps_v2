@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 *.log
 backend/aps.db
+outputs/

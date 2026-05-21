@@ -4,6 +4,7 @@ import {
   getOperationMappingRules,
   createOperationMappingRule,
   updateOperationMappingRule,
+  deleteOperationMappingRule,
   getWorkCenters,
   createWorkCenter,
 } from "../api/production";
@@ -22,6 +23,7 @@ export default function OperationMapping() {
   const [showNewCenter, setShowNewCenter] = useState(false);
   const [newCenterForm, setNewCenterForm] = useState({ name: "", code: "", is_external: false });
   const [creatingCenter, setCreatingCenter] = useState(false);
+  const [deletingRuleId, setDeletingRuleId] = useState(null);
   const [form, setForm] = useState({
     source_name: "",
     normalized_name: "",
@@ -104,6 +106,27 @@ export default function OperationMapping() {
       status: rule.status,
     });
     setShowForm(true);
+  };
+
+  const handleDeleteRule = async (rule) => {
+    if (!window.confirm(`确认删除映射规则「${rule.source_name}」？删除后导入将不再自动匹配该工序列。`)) {
+      return;
+    }
+    setDeletingRuleId(rule.id);
+    setError("");
+    setMessage("");
+    try {
+      await deleteOperationMappingRule(rule.id);
+      setMessage(`映射规则「${rule.source_name}」已删除。`);
+      if (editingRule === rule.id) {
+        resetForm();
+      }
+      await loadData();
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "映射规则删除失败。");
+    } finally {
+      setDeletingRuleId(null);
+    }
   };
 
   const handleCreateCenter = async () => {
@@ -345,6 +368,14 @@ export default function OperationMapping() {
                           onClick={() => handleEdit(rule)}
                         >
                           编辑
+                        </button>
+                        <button
+                          className="button small danger"
+                          type="button"
+                          disabled={deletingRuleId === rule.id}
+                          onClick={() => handleDeleteRule(rule)}
+                        >
+                          {deletingRuleId === rule.id ? "删除中..." : "删除"}
                         </button>
                       </div>
                     </td>

@@ -55,7 +55,7 @@ export default function GanttChart({ data = [] }) {
           const resourceName = machine.machine_name || machine.work_center_name || machine.machine_code || "--";
           const resourceCode = machine.machine_code || (machine.is_external ? "外协" : "--");
           const machineHours = machine.tasks.reduce(
-            (sum, task) => sum + getDurationHours(task.start_time, task.end_time),
+            (sum, task) => sum + Number(task.scheduled_duration_hours ?? getDurationHours(task.start_time, task.end_time)),
             0
           );
 

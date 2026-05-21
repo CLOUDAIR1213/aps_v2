@@ -1,0 +1,1244 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>APS v2 UI Mockups</title>
+    <style>
+      :root {
+        --canvas: #f5f7fa;
+        --sidebar: #13202b;
+        --sidebar-2: #182a37;
+        --panel: #ffffff;
+        --panel-soft: #f9fbfd;
+        --line: #dfe6ee;
+        --line-strong: #c9d3df;
+        --text: #17212b;
+        --muted: #637181;
+        --muted-2: #8a97a6;
+        --blue: #1f6feb;
+        --blue-soft: #e9f1ff;
+        --green: #2f9b66;
+        --green-soft: #e9f8f0;
+        --orange: #d97706;
+        --orange-soft: #fff4df;
+        --red: #d64545;
+        --red-soft: #fff0f0;
+        --purple: #6f5bd6;
+        --purple-soft: #f1edff;
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1600px;
+        min-height: 1080px;
+        margin: 0;
+        color: var(--text);
+        background: var(--canvas);
+        font-family: "Microsoft YaHei", "Segoe UI", Arial, sans-serif;
+      }
+
+      body {
+        overflow: hidden;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: 252px 1fr;
+        width: 1600px;
+        height: 1080px;
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding: 22px 16px;
+        color: #edf5fb;
+        background: var(--sidebar);
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .brand {
+        display: grid;
+        gap: 7px;
+        padding: 2px 8px 14px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .brand-title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 800;
+      }
+
+      .brand-sub {
+        color: #9fb2c3;
+        font-size: 12px;
+      }
+
+      .nav-group {
+        display: grid;
+        gap: 8px;
+      }
+
+      .nav-heading {
+        padding: 0 10px;
+        color: #8499ab;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .nav-item {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        align-items: center;
+        gap: 10px;
+        min-height: 48px;
+        padding: 8px 10px;
+        border-radius: var(--radius);
+        color: #cfdae4;
+      }
+
+      .nav-item.active {
+        color: #fff;
+        background: #1f6feb;
+      }
+
+      .nav-code {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .nav-label {
+        display: block;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .nav-hint {
+        display: block;
+        margin-top: 2px;
+        color: rgba(236, 244, 249, 0.62);
+        font-size: 11px;
+      }
+
+      .sidebar-foot {
+        margin-top: auto;
+        padding: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: var(--radius);
+        background: rgba(255, 255, 255, 0.05);
+      }
+
+      .flow-title {
+        color: #b8c9d8;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .flow {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .flow-step {
+        display: grid;
+        grid-template-columns: 24px 1fr;
+        gap: 9px;
+        align-items: center;
+        font-size: 12px;
+        color: #bccbd8;
+      }
+
+      .dot {
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border: 1px solid #557084;
+        font-size: 11px;
+      }
+
+      .flow-step.done .dot,
+      .flow-step.current .dot {
+        background: var(--green);
+        border-color: var(--green);
+        color: #fff;
+      }
+
+      .main {
+        display: grid;
+        grid-template-rows: 72px 1fr;
+        min-width: 0;
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: 1fr 360px auto;
+        align-items: center;
+        gap: 18px;
+        padding: 0 28px;
+        background: #ffffff;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .crumb {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .page-name {
+        color: var(--text);
+        font-size: 19px;
+        font-weight: 800;
+      }
+
+      .search {
+        height: 38px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--muted);
+        background: var(--panel-soft);
+      }
+
+      .user {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 13px;
+      }
+
+      .badge-dot {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 22px;
+        height: 22px;
+        padding: 0 6px;
+        border-radius: 999px;
+        color: #fff;
+        background: var(--red);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .content {
+        padding: 24px 28px 30px;
+        overflow: hidden;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 20px;
+        margin-bottom: 18px;
+      }
+
+      .eyebrow {
+        color: var(--blue);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      h1 {
+        margin: 6px 0 8px;
+        font-size: 28px;
+        line-height: 1.2;
+      }
+
+      .desc {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 38px;
+        padding: 0 16px;
+        border: 1px solid var(--blue);
+        border-radius: 6px;
+        color: #fff;
+        background: var(--blue);
+        font-weight: 700;
+      }
+
+      .btn.secondary {
+        color: var(--text);
+        background: #fff;
+        border-color: var(--line-strong);
+      }
+
+      .btn.green {
+        border-color: var(--green);
+        background: var(--green);
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .cols-4 {
+        grid-template-columns: repeat(4, 1fr);
+      }
+
+      .cols-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .cols-2 {
+        grid-template-columns: 1.45fr 0.9fr;
+      }
+
+      .cols-equal {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+      }
+
+      .panel.pad {
+        padding: 18px;
+      }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .panel-title {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 800;
+      }
+
+      .panel-body {
+        padding: 16px 18px;
+      }
+
+      .metric {
+        display: grid;
+        grid-template-columns: 48px 1fr;
+        gap: 12px;
+        align-items: center;
+        min-height: 104px;
+        padding: 16px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+      }
+
+      .metric-icon {
+        display: grid;
+        place-items: center;
+        width: 48px;
+        height: 48px;
+        border-radius: 8px;
+        color: var(--blue);
+        background: var(--blue-soft);
+        font-weight: 900;
+      }
+
+      .metric.green .metric-icon {
+        color: var(--green);
+        background: var(--green-soft);
+      }
+
+      .metric.orange .metric-icon {
+        color: var(--orange);
+        background: var(--orange-soft);
+      }
+
+      .metric.red .metric-icon {
+        color: var(--red);
+        background: var(--red-soft);
+      }
+
+      .metric-label {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .metric-value {
+        margin-top: 4px;
+        font-size: 28px;
+        font-weight: 900;
+      }
+
+      .delta {
+        margin-top: 4px;
+        color: var(--muted-2);
+        font-size: 12px;
+      }
+
+      .delta b {
+        color: var(--red);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        height: 42px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      th {
+        color: #334155;
+        background: #f7f9fc;
+        font-weight: 800;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .tag.blue {
+        color: var(--blue);
+        background: var(--blue-soft);
+      }
+
+      .tag.green {
+        color: var(--green);
+        background: var(--green-soft);
+      }
+
+      .tag.orange {
+        color: var(--orange);
+        background: var(--orange-soft);
+      }
+
+      .tag.red {
+        color: var(--red);
+        background: var(--red-soft);
+      }
+
+      .tag.purple {
+        color: var(--purple);
+        background: var(--purple-soft);
+      }
+
+      .tag.gray {
+        color: #607080;
+        background: #eef2f6;
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .field,
+      .select {
+        display: inline-flex;
+        align-items: center;
+        height: 36px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--muted);
+        background: #fff;
+        font-size: 13px;
+      }
+
+      .progress {
+        display: inline-grid;
+        grid-template-columns: 92px 42px;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .bar {
+        height: 8px;
+        border-radius: 999px;
+        background: #e5eaf0;
+        overflow: hidden;
+      }
+
+      .fill {
+        display: block;
+        height: 100%;
+        background: var(--blue);
+      }
+
+      .fill.green {
+        background: var(--green);
+      }
+
+      .fill.orange {
+        background: var(--orange);
+      }
+
+      .list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .issue {
+        display: grid;
+        grid-template-columns: 34px 1fr auto;
+        gap: 12px;
+        align-items: start;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .issue:last-child {
+        border-bottom: 0;
+      }
+
+      .mark {
+        display: grid;
+        place-items: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 7px;
+        color: #fff;
+        font-weight: 900;
+      }
+
+      .mark.red {
+        background: var(--red);
+      }
+
+      .mark.orange {
+        background: var(--orange);
+      }
+
+      .mark.blue {
+        background: var(--blue);
+      }
+
+      .issue-title {
+        font-weight: 800;
+      }
+
+      .issue-meta,
+      .small {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .gantt-grid {
+        display: grid;
+        grid-template-columns: 136px repeat(7, 1fr);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+
+      .gantt-cell {
+        position: relative;
+        min-height: 54px;
+        padding: 9px;
+        border-right: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+        font-size: 12px;
+      }
+
+      .gantt-cell.head {
+        min-height: 42px;
+        color: #334155;
+        background: #f7f9fc;
+        font-weight: 800;
+        text-align: center;
+      }
+
+      .gantt-cell.label {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #334155;
+        background: #fbfcfe;
+        font-weight: 800;
+      }
+
+      .task {
+        position: absolute;
+        top: 14px;
+        height: 26px;
+        border-radius: 5px;
+        color: #fff;
+        background: var(--blue);
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 26px;
+        text-align: center;
+      }
+
+      .task.green {
+        background: var(--green);
+      }
+
+      .task.orange {
+        background: var(--orange);
+      }
+
+      .task.gray {
+        color: #475569;
+        background: #dfe5ec;
+      }
+
+      .steps {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 10px;
+      }
+
+      .step-card {
+        min-height: 94px;
+        padding: 13px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .step-card.active {
+        border-color: var(--blue);
+        background: var(--blue-soft);
+      }
+
+      .step-no {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .step-name {
+        margin-top: 9px;
+        font-weight: 900;
+      }
+
+      .step-status {
+        margin-top: 8px;
+      }
+
+      .dropzone {
+        display: grid;
+        place-items: center;
+        min-height: 164px;
+        border: 1px dashed #9db2c7;
+        border-radius: var(--radius);
+        background: #f7fbff;
+        text-align: center;
+      }
+
+      .drop-title {
+        font-size: 18px;
+        font-weight: 900;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: 280px 1fr 300px;
+        gap: 16px;
+      }
+
+      .map-card {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #fff;
+        color: #334155;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .health {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+      }
+
+      .health-card {
+        padding: 14px;
+        border-radius: var(--radius);
+        border: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .health-card.red {
+        border-color: #ffd0d0;
+        background: var(--red-soft);
+      }
+
+      .health-card.orange {
+        border-color: #f7d9a4;
+        background: var(--orange-soft);
+      }
+
+      .health-card.green {
+        border-color: #b7e6ca;
+        background: var(--green-soft);
+      }
+
+      .timeline {
+        display: grid;
+        gap: 12px;
+      }
+
+      .time-item {
+        display: grid;
+        grid-template-columns: 92px 1fr auto;
+        gap: 14px;
+        align-items: center;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+      }
+
+      .path {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .path span {
+        padding: 8px 10px;
+        border-radius: 6px;
+        color: #fff;
+        background: var(--blue);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .path i {
+        color: var(--muted-2);
+        font-style: normal;
+      }
+
+      .board {
+        display: grid;
+        grid-template-columns: 150px repeat(7, 1fr);
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+
+      .board-cell {
+        position: relative;
+        min-height: 70px;
+        padding: 9px;
+        border-right: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+
+      .board-cell.head,
+      .board-cell.rowhead {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        background: #f7f9fc;
+        font-weight: 900;
+      }
+
+      .board-cell.off {
+        background: #f0f3f6;
+      }
+
+      .pill-task {
+        display: block;
+        width: 100%;
+        min-height: 24px;
+        margin: 4px 0;
+        padding: 5px 8px;
+        border-radius: 5px;
+        color: #fff;
+        background: var(--blue);
+        font-size: 12px;
+        font-weight: 800;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .pill-task.orange {
+        background: var(--orange);
+      }
+
+      .pill-task.green {
+        background: var(--green);
+      }
+
+      .pill-task.gray {
+        color: #475569;
+        background: #dce4eb;
+      }
+
+      /* Reference-style shell: light sidebar and clean top navigation. */
+      .app {
+        grid-template-columns: 226px 1fr;
+        grid-template-rows: 72px 1fr;
+        background: var(--canvas);
+      }
+
+      .app-header {
+        grid-column: 1 / 3;
+        display: grid;
+        grid-template-columns: 226px 1fr;
+        background: #fff;
+        border-bottom: 1px solid #e4e9f0;
+      }
+
+      .header-brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        height: 72px;
+        padding: 0 20px;
+        border-right: 1px solid #e4e9f0;
+      }
+
+      .hamburger {
+        position: relative;
+        width: 18px;
+        height: 14px;
+        flex: 0 0 auto;
+      }
+
+      .hamburger::before,
+      .hamburger::after,
+      .hamburger span {
+        content: "";
+        position: absolute;
+        left: 0;
+        width: 18px;
+        height: 2px;
+        border-radius: 999px;
+        background: #4b5563;
+      }
+
+      .hamburger::before {
+        top: 0;
+      }
+
+      .hamburger span {
+        top: 6px;
+      }
+
+      .hamburger::after {
+        top: 12px;
+      }
+
+      .header-title {
+        color: #1264e8;
+        font-size: 18px;
+        font-weight: 900;
+        white-space: nowrap;
+      }
+
+      .sidebar {
+        grid-column: 1;
+        grid-row: 2;
+        gap: 6px;
+        padding: 16px 10px;
+        color: #1f2937;
+        background: #fff;
+        border-right: 1px solid #e4e9f0;
+        overflow: auto;
+      }
+
+      .sidebar .brand,
+      .sidebar-foot,
+      .nav-heading,
+      .nav-hint {
+        display: none;
+      }
+
+      .nav-group {
+        gap: 6px;
+      }
+
+      .nav-item {
+        grid-template-columns: 28px 1fr;
+        gap: 13px;
+        min-height: 50px;
+        padding: 0 14px;
+        border-radius: 6px;
+        color: #111827;
+        background: transparent;
+        border: 0;
+      }
+
+      .nav-item.active {
+        color: #1164e8;
+        background: #eaf2ff;
+      }
+
+      .nav-code {
+        width: 22px;
+        height: 22px;
+        border: 0;
+        border-radius: 0;
+        color: #5d6b7a;
+        background: transparent;
+      }
+
+      .nav-item.active .nav-code {
+        color: #1164e8;
+      }
+
+      .nav-icon {
+        width: 22px;
+        height: 22px;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .nav-label {
+        font-size: 15px;
+        font-weight: 700;
+      }
+
+      .main {
+        grid-column: 2;
+        grid-row: 2;
+        grid-template-rows: 1fr;
+      }
+
+      .topbar {
+        grid-template-columns: 1fr 360px auto;
+        height: 72px;
+        padding: 0 32px;
+        border-bottom: 0;
+      }
+
+      .topbar .crumb {
+        display: none;
+      }
+
+      .content {
+        padding: 24px 22px 30px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      const nav = [
+        ["运行总览", "DB", "首页", "总览与风险", "home"],
+        ["数据准备", "IMP", "工单导入", "Excel 预览入库", "import"],
+        ["数据准备", "CFG", "资源配置", "工段与设备", "resources"],
+        ["数据准备", "MAP", "工序映射", "列名到工段", "mapping"],
+        ["数据准备", "PER", "人员档案", "花名册与工段", "personnel"],
+        ["数据准备", "RSG", "资源分组", "资源归类", "groups"],
+        ["计划执行", "SCH", "排产驾驶台", "队列与排产", "scheduling"],
+        ["计划执行", "BD", "生产排班表", "日期矩阵", "board"],
+        ["结果分析", "OUT", "订单排产总览", "交付与锁单", "results"],
+        ["结果分析", "DTL", "订单排产详情", "零件与工序", "detail"],
+        ["结果分析", "GNT", "甘特图", "设备时间轴", "gantt"],
+        ["经营问题", "MGT", "经营问题看板", "风险与处理", "management"],
+        ["兼容资料", "MCH", "设备管理", "旧 demo 入口", "machines"],
+        ["兼容资料", "ORD", "订单管理", "旧 demo 入口", "orders"],
+        ["兼容资料", "RTE", "工艺路线", "旧 demo 入口", "routings"]
+      ];
+
+      const meta = {
+        home: ["运行总览", "轻量级 APS 排产中控", "把订单、工段设备、工艺导入、排产结果和经营风险放在同一个工作入口。"],
+        import: ["数据准备", "工单导入与解析确认", "上传 Excel 工艺表，先预览订单、零件、工序和异常，再确认进入待排产队列。"],
+        resources: ["数据准备", "资源配置：工段与设备产能", "维护内部工段、外协资源、设备道状态和日可用产能。"],
+        mapping: ["数据准备", "工序列名到工段映射", "把 Excel 工艺列稳定映射到系统工段，未匹配项阻塞确认入库。"],
+        personnel: ["数据准备", "人员花名册与工段关联", "人员不作为当前硬排产约束，用于排班视图和后续执行反馈。"],
+        groups: ["数据准备", "资源分组管理", "按产线、车间或能力组管理工段、设备和人员成员。"],
+        scheduling: ["计划执行", "排产驾驶台", "选择待排或已排订单、指定开始日期、保留锁定订单后执行排产。"],
+        board: ["计划执行", "生产排班表", "以 Excel 日期矩阵查看工段、设备和人员视图，周日与休息日灰底。"],
+        results: ["结果分析", "订单级排产总览", "默认看订单预计开始、预计完成、延期天数、瓶颈资源和锁定状态。"],
+        detail: ["结果分析", "订单排产详情", "解释单张订单为什么这么排，展示零件时间线、工序明细和 FS 依赖。"],
+        gantt: ["结果分析", "设备甘特图", "按设备时间轴查看任务占用、空窗和瓶颈。"],
+        management: ["经营问题", "经营问题看板", "老板看交付风险，计划员维护问题状态、备注并下钻定位。"],
+        machines: ["兼容资料", "设备管理", "保留旧 demo 设备主数据页，后续弱化到兼容入口。"],
+        orders: ["兼容资料", "订单管理", "保留旧 demo 订单维护页，核心新增订单通过工单导入进入。"],
+        routings: ["兼容资料", "工艺路线", "保留旧 demo 工艺路线页，主线工序来自 Excel 导入和映射规则。"]
+      };
+
+      const actions = {
+        home: ["导入工单", "进入排产"],
+        import: ["下载模板", "确认入库"],
+        resources: ["新增工段", "新增设备"],
+        mapping: ["新增映射", "重新预览"],
+        personnel: ["导入排班表", "新增人员"],
+        groups: ["新增资源组", "添加成员"],
+        scheduling: ["保存草稿", "运行排产"],
+        board: ["切换设备视图", "导出排班表"],
+        results: ["导出结果", "批量锁定"],
+        detail: ["返回总览", "查看甘特"],
+        gantt: ["切换周视图", "导出图片"],
+        management: ["导出风险报告", "批量更新状态"],
+        machines: ["新增设备", "同步资源配置"],
+        orders: ["新增订单", "进入工单导入"],
+        routings: ["新增路线", "维护工序"]
+      };
+
+      function navIcon(key) {
+        const icons = {
+          home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-7h6v7"/>',
+          import: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/>',
+          resources: '<path d="M4 6h16"/><path d="M6 6v14h12V6"/><path d="M9 10h6"/><path d="M9 14h6"/>',
+          mapping: '<path d="M5 7h6"/><path d="M13 7h6"/><path d="M11 7c2 0 2 10 4 10"/><path d="M5 17h6"/><path d="M15 17h4"/>',
+          personnel: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M20 8v6"/><path d="M23 11h-6"/>',
+          groups: '<rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="8.5" y="15" width="7" height="7" rx="1"/>',
+          scheduling: '<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 2v4"/><path d="M16 2v4"/><path d="M4 9h16"/><path d="M8 14h4"/><path d="M8 18h8"/>',
+          board: '<path d="M4 5h16"/><path d="M4 10h16"/><path d="M4 15h16"/><path d="M8 5v14"/><path d="M14 5v14"/>',
+          results: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 15v-4"/><path d="M12 15V8"/><path d="M16 15v-6"/>',
+          detail: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h6"/>',
+          gantt: '<path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/><path d="M7 8h6"/><path d="M10 14h8"/><path d="M5 20h9"/>',
+          management: '<path d="M12 3 3 7.5V12c0 5 3.5 8 9 9 5.5-1 9-4 9-9V7.5L12 3z"/><path d="M12 8v5"/><path d="M12 17h.01"/>',
+          machines: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 18v3"/><path d="M17 18v3"/><path d="M8 10h8"/>',
+          orders: '<path d="M6 2h9l5 5v15H6z"/><path d="M14 2v6h6"/><path d="M9 13h7"/><path d="M9 17h7"/>',
+          routings: '<path d="M5 12h14"/><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><path d="M12 4v6"/><path d="M12 14v6"/>'
+        };
+        return `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">${icons[key] || icons.home}</svg>`;
+      }
+
+      function layout(page, body) {
+        const groups = [...new Set(nav.map((n) => n[0]))];
+        const side = groups
+          .map((g) => `<div class="nav-group"><div class="nav-heading">${g}</div>${nav
+            .filter((n) => n[0] === g)
+            .map((n) => `<div class="nav-item ${n[4] === page ? "active" : ""}"><span class="nav-code">${navIcon(n[4])}</span><span><span class="nav-label">${n[2]}</span><span class="nav-hint">${n[3]}</span></span></div>`)
+            .join("")}</div>`)
+          .join("");
+        const steps = ["基础配置", "工单导入", "运行排产", "结果复盘", "经营处理"];
+        const current = page === "home" ? 4 : page === "import" ? 1 : ["resources", "mapping", "personnel", "groups"].includes(page) ? 0 : ["scheduling", "board"].includes(page) ? 2 : ["results", "detail", "gantt"].includes(page) ? 3 : page === "management" ? 4 : 0;
+        return `<div class="app">
+          <header class="app-header">
+            <div class="header-brand"><span class="hamburger"><span></span></span><span class="header-title">轻量级 APS 排产系统</span></div>
+            <div class="topbar"><div class="crumb"><span>APS v2</span><span>/</span><span class="page-name">${meta[page][1]}</span></div><div class="search">搜索订单、客户、工段、设备</div><div class="user"><span>今日 2026-05-05</span><span class="badge-dot">3</span><span>管理员</span></div></div>
+          </header>
+          <aside class="sidebar">
+            <div class="brand"><h2 class="brand-title">轻量级 APS</h2><div class="brand-sub">生产排产系统 v2</div></div>
+            ${side}
+            <div class="sidebar-foot"><div class="flow-title">业务流程</div><div class="flow">
+              ${steps.map((s, i) => `<div class="flow-step ${i < current ? "done" : i === current ? "current" : ""}"><span class="dot">${i + 1}</span><span>${s}</span></div>`).join("")}
+            </div></div>
+          </aside>
+          <main class="main">
+            <section class="content">
+              <div class="hero"><div><div class="eyebrow">${meta[page][0]}</div><h1>${meta[page][1]}</h1><p class="desc">${meta[page][2]}</p></div><div class="actions">${actions[page].map((a, i) => `<button class="btn ${i === 0 ? "secondary" : ""}">${a}</button>`).join("")}</div></div>
+              ${body}
+            </section>
+          </main>
+        </div>`;
+      }
+
+      function metric(label, value, icon, cls = "", delta = "较昨日持平") {
+        return `<div class="metric ${cls}"><div class="metric-icon">${icon}</div><div><div class="metric-label">${label}</div><div class="metric-value">${value}</div><div class="delta">${delta}</div></div></div>`;
+      }
+
+      function progress(v, cls = "") {
+        return `<span class="progress"><span class="bar"><span class="fill ${cls}" style="width:${v}%"></span></span><b>${v}%</b></span>`;
+      }
+
+      function home() {
+        return layout("home", `<div class="grid cols-4">
+          ${metric("今日订单", "18", "ORD", "", "较昨日 <b>+3</b>")}
+          ${metric("待排任务", "23", "TASK", "green", "较昨日 <b>+5</b>")}
+          ${metric("平均设备利用率", "68%", "LOAD", "orange", "较上周 <b>+5%</b>")}
+          ${metric("交付高风险", "2", "RISK", "red", "较昨日 <b>+1</b>")}
+        </div>
+        <div class="grid cols-2" style="margin-top:16px">
+          <div class="panel"><div class="panel-head"><h3 class="panel-title">排产计划甘特预览</h3><div class="toolbar"><span class="field">2026-05-05 至 2026-05-11</span><span class="select">按天查看</span></div></div><div class="panel-body">${miniGantt()}</div></div>
+          <div class="panel"><div class="panel-head"><h3 class="panel-title">异常提醒</h3><span class="small">更多</span></div><div class="panel-body">${issues()}</div></div>
+        </div>
+        <div class="grid cols-2" style="margin-top:16px">
+          <div class="panel"><div class="panel-head"><h3 class="panel-title">订单列表</h3><span class="small">共 18 条</span></div><div class="panel-body">${orderTable()}</div></div>
+          <div class="panel"><div class="panel-head"><h3 class="panel-title">资源负荷</h3><span class="small">本周</span></div><div class="panel-body">${loadTable()}</div></div>
+        </div>`);
+      }
+
+      function miniGantt() {
+        const days = ["05-05 周二", "05-06 周三", "05-07 周四", "05-08 周五", "05-09 周六", "05-10 周日", "05-11 周一"];
+        const rows = ["订单A", "订单B", "订单C"];
+        return `<div class="gantt-grid"><div class="gantt-cell head">订单/任务</div>${days.map((d) => `<div class="gantt-cell head">${d}</div>`).join("")}
+          ${rows.map((r, ri) => `<div class="gantt-cell label">${r}</div>${days.map((d, i) => `<div class="gantt-cell">${ri === 0 && i === 0 ? '<span class="task" style="left:6px;width:95%">下料</span>' : ""}${ri === 0 && i === 1 ? '<span class="task green" style="left:6px;width:95%">焊接</span>' : ""}${ri === 0 && i === 2 ? '<span class="task" style="left:6px;width:95%">机加工</span>' : ""}${ri === 1 && i === 1 ? '<span class="task" style="left:6px;width:95%">下料</span>' : ""}${ri === 1 && i === 3 ? '<span class="task orange" style="left:6px;width:95%">外协</span>' : ""}${ri === 2 && i === 2 ? '<span class="task green" style="left:6px;width:95%">焊接</span>' : ""}${ri === 2 && i === 4 ? '<span class="task gray" style="left:6px;width:95%">拼装</span>' : ""}</div>`).join("")}`).join("")}</div>`;
+      }
+
+      function issues() {
+        const rows = [
+          ["red", "!", "2 个工段无启用设备", "下料、机加工，阻塞新排产", "09:15"],
+          ["orange", "!", "1 个订单存在延期风险", "ORD20260502003 预计晚 2 天", "09:10"],
+          ["blue", "i", "设备保养提醒", "焊接-02 计划 2026-05-08", "昨天"]
+        ];
+        return `<div class="list">${rows.map((r) => `<div class="issue"><span class="mark ${r[0]}">${r[1]}</span><div><div class="issue-title">${r[2]}</div><div class="issue-meta">${r[3]}</div></div><span class="small">${r[4]}</span></div>`).join("")}</div>`;
+      }
+
+      function orderTable() {
+        const rows = [
+          ["ORD20260502001", "客户A", "2026-05-10", "生产中", "100", "40", progress(40)],
+          ["ORD20260502002", "客户B", "2026-05-11", "生产中", "80", "20", progress(25)],
+          ["ORD20260501003", "客户C", "2026-05-12", "待排产", "60", "0", progress(0)],
+          ["ORD20260501004", "客户D", "2026-05-13", "待排产", "120", "0", progress(0)],
+          ["ORD20260430005", "客户E", "2026-05-09", "已完成", "50", "50", progress(100, "green")]
+        ];
+        return `<table><thead><tr><th>订单号</th><th>客户</th><th>交期</th><th>状态</th><th>数量</th><th>已完成</th><th>进度</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="tag ${r[3] === "已完成" ? "green" : r[3] === "待排产" ? "orange" : "blue"}">${r[3]}</span></td><td>${r[4]}</td><td>${r[5]}</td><td>${r[6]}</td></tr>`).join("")}</tbody></table>`;
+      }
+
+      function loadTable() {
+        const rows = [["下料", 72, "较高"], ["焊接", 85, "较高"], ["拼装", 60, "正常"], ["机加工", 45, "正常"], ["外协", 38, "空闲"]];
+        return `<table><thead><tr><th>工作中心</th><th>利用率</th><th>负荷情况</th></tr></thead><tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td>${progress(r[1], r[1] > 80 ? "orange" : "")}</td><td><span class="tag ${r[2] === "较高" ? "orange" : r[2] === "空闲" ? "gray" : "green"}">${r[2]}</span></td></tr>`).join("")}</tbody></table>`;
+      }
+
+      function importPage() {
+        return layout("import", `<div class="grid"><div class="steps">${["模板检查", "上传文件", "解析预览", "映射校验", "确认入库", "进入排产"].map((s, i) => `<div class="step-card ${i === 2 ? "active" : ""}"><div class="step-no">STEP ${i + 1}</div><div class="step-name">${s}</div><div class="step-status"><span class="tag ${i < 2 ? "green" : i === 2 ? "blue" : "gray"}">${i < 2 ? "已完成" : i === 2 ? "进行中" : "待处理"}</span></div></div>`).join("")}</div>
+          <div class="grid cols-2"><div class="panel"><div class="panel-head"><h3 class="panel-title">上传工艺表</h3><span class="small">支持 .xlsx</span></div><div class="panel-body"><div class="dropzone"><div><div class="drop-title">ORD_202605_机械加工工艺表.xlsx</div><p class="desc">已解析 18 张订单、126 个零件、386 道工序</p></div></div></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">导入校验</h3></div><div class="panel-body"><div class="health"><div class="health-card green"><b>通过 112 项</b><p class="small">订单号、客户、数量、交期完整</p></div><div class="health-card orange"><b>提醒 3 项</b><p class="small">部分外协工时为空，使用默认周期</p></div><div class="health-card red"><b>阻塞 1 项</b><p class="small">气攻列尚未映射到工段</p></div></div></div></div></div>
+          <div class="grid cols-2"><div class="panel"><div class="panel-head"><h3 class="panel-title">订单预览</h3><span class="tag orange">需处理 1 项</span></div><div class="panel-body">${orderTable()}</div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">解析问题</h3></div><div class="panel-body">${issues()}</div></div></div></div>`);
+      }
+
+      function resourcesPage() {
+        return layout("resources", `<div class="grid cols-4">${metric("工段", "12", "WC")}${metric("启用设备", "36", "MCH", "green")}${metric("维修/停机", "4", "STOP", "orange")}${metric("阻塞工段", "1", "BLK", "red")}</div>
+        <div class="grid cols-2" style="margin-top:16px"><div class="panel"><div class="panel-head"><h3 class="panel-title">工段配置</h3><div class="toolbar"><span class="select">内部+外协</span><span class="field">搜索工段</span></div></div><div class="panel-body"><table><thead><tr><th>编码</th><th>工段</th><th>类型</th><th>日产能</th><th>状态</th><th>设备</th></tr></thead><tbody>${[["WC-CUT","下料","内部","480 分钟","active","4"],["WC-WELD","焊接","内部","480 分钟","active","6"],["WC-LONG","5m 龙门","内部","420 分钟","active","2"],["WC-OUT","钣金外协","外协","默认 2 天","active","0"],["WC-TAP","气攻","内部","480 分钟","disabled","0"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td><span class="tag ${r[2] === "外协" ? "purple" : "blue"}">${r[2]}</span></td><td>${r[3]}</td><td><span class="tag ${r[4] === "active" ? "green" : "gray"}">${r[4]}</span></td><td>${r[5]}</td></tr>`).join("")}</tbody></table></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">设备状态</h3></div><div class="panel-body"><table><thead><tr><th>设备编码</th><th>名称</th><th>所属工段</th><th>状态</th><th>产能</th></tr></thead><tbody>${[["M-CUT-01","激光下料-01","下料","active","480"],["M-WELD-02","焊接-02","焊接","maintenance","0"],["M-LONG-01","龙门-01","5m 龙门","active","420"],["M-ASM-03","拼装-03","拼装","stopped","0"],["M-CNC-06","加工中心-06","机加工","active","480"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="tag ${r[3] === "active" ? "green" : r[3] === "maintenance" ? "orange" : "red"}">${r[3]}</span></td><td>${r[4]} 分钟</td></tr>`).join("")}</tbody></table></div></div></div>`);
+      }
+
+      function mappingPage() {
+        const cols = ["下料", "火焰切割", "焊接", "5米龙门", "拼装", "气攻", "钣金外"];
+        return layout("mapping", `<div class="split"><div class="panel pad"><h3 class="panel-title">Excel 工序列</h3><div class="list" style="margin-top:14px">${cols.map((c, i) => `<div class="map-card"><b>${c}</b><span class="tag ${i === 5 ? "red" : "green"}">${i === 5 ? "未匹配" : "已匹配"}</span></div>`).join("")}</div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">映射规则</h3><div class="toolbar"><span class="field">搜索列名</span><span class="select">仅启用</span></div></div><div class="panel-body"><table><thead><tr><th>Excel 列名</th><th>系统工段</th><th>匹配方式</th><th>状态</th><th>最近使用</th></tr></thead><tbody>${[["下料","下料","精确","active","2026-05-05"],["火焰切割","下料","别名","active","2026-05-05"],["焊接","焊接","精确","active","2026-05-04"],["5米龙门","5m 龙门","别名","active","2026-05-04"],["钣金外","钣金外协","别名","active","2026-05-03"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="tag green">${r[3]}</span></td><td>${r[4]}</td></tr>`).join("")}</tbody></table></div></div><div class="panel pad"><h3 class="panel-title">未匹配处理</h3><p class="desc" style="margin-top:12px">气攻列未匹配，当前批次不能确认入库。</p><div class="list" style="margin-top:18px"><span class="field">源列名：气攻</span><span class="select">选择工段：攻丝</span><button class="btn">保存映射</button><span class="tag orange">保存后自动复用</span></div></div></div>`);
+      }
+
+      function personnelPage() {
+        return layout("personnel", `<div class="grid cols-4">${metric("执行人员", "58", "PER")}${metric("启用人员", "52", "ON", "green")}${metric("无人员工段", "1", "WARN", "orange")}${metric("停用人员", "6", "OFF", "red")}</div><div class="grid cols-2" style="margin-top:16px"><div class="panel"><div class="panel-head"><h3 class="panel-title">人员花名册</h3><div class="toolbar"><span class="field">搜索姓名/工号</span><span class="select">所属工段</span></div></div><div class="panel-body"><table><thead><tr><th>工号</th><th>姓名</th><th>所属工段</th><th>状态</th><th>班次</th></tr></thead><tbody>${[["P001","张明","下料","active","白班"],["P002","李强","焊接","active","白班"],["P003","王芳","拼装","active","白班"],["P004","赵磊","机加工","disabled","白班"],["P005","陈静","5m 龙门","active","白班"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="tag ${r[3] === "active" ? "green" : "gray"}">${r[3]}</span></td><td>${r[4]}</td></tr>`).join("")}</tbody></table></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">按工段关联</h3></div><div class="panel-body"><div class="chip-row">${["下料 8人","焊接 12人","机加工 14人","拼装 10人","5m 龙门 4人","气攻 0人"].map((c, i) => `<span class="chip" style="${i === 5 ? "border-color:#f7d9a4;background:#fff4df;color:#d97706" : ""}">${c}</span>`).join("")}</div><div style="height:18px"></div>${issues()}</div></div></div>`);
+      }
+
+      function groupsPage() {
+        return layout("groups", `<div class="grid cols-2"><div class="panel"><div class="panel-head"><h3 class="panel-title">资源组</h3><div class="toolbar"><span class="field">搜索资源组</span><span class="select">启用</span></div></div><div class="panel-body"><table><thead><tr><th>编码</th><th>名称</th><th>成员数</th><th>状态</th><th>说明</th></tr></thead><tbody>${[["RG-CUT","下料产能组","9","active","切割与下料"],["RG-WELD","焊接资源组","18","active","焊接设备与人员"],["RG-OUT","外协资源组","4","active","外协工段"],["RG-CNC","机加工资源组","16","active","加工中心"],["RG-OLD","停用资源组","2","disabled","历史兼容"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="tag ${r[3] === "active" ? "green" : "gray"}">${r[3]}</span></td><td>${r[4]}</td></tr>`).join("")}</tbody></table></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">资源组成员：焊接资源组</h3></div><div class="panel-body"><table><thead><tr><th>类型</th><th>成员</th><th>编码</th><th>状态</th></tr></thead><tbody>${[["工段","焊接","WC-WELD","active"],["设备","焊接-01","M-WELD-01","active"],["设备","焊接-02","M-WELD-02","maintenance"],["人员","李强","P002","active"],["人员","刘杰","P009","active"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="tag ${r[3] === "active" ? "green" : "orange"}">${r[3]}</span></td></tr>`).join("")}</tbody></table></div></div></div>`);
+      }
+
+      function schedulingPage() {
+        return layout("scheduling", `<div class="grid cols-4">${metric("可排订单", "24", "ORD")}${metric("已选订单", "8", "SEL", "green")}${metric("锁定订单", "3", "LOCK", "orange")}${metric("阻塞问题", "1", "BLK", "red")}</div><div class="grid cols-2" style="margin-top:16px"><div class="panel"><div class="panel-head"><h3 class="panel-title">排产范围</h3><div class="toolbar"><span class="select">待排+已排</span><span class="field">开始：2026-05-06 08:00</span><span class="select">基准方案 S20260505-01</span></div></div><div class="panel-body"><table><thead><tr><th>选择</th><th>订单号</th><th>客户</th><th>交期</th><th>优先级</th><th>状态</th><th>风险</th></tr></thead><tbody>${[["✓","ORD20260502001","客户A","05-10","高","已排","正常"],["✓","ORD20260502002","客户B","05-11","高","待排","临期"],["✓","ORD20260501003","客户C","05-12","中","待排","正常"],["","ORD20260428009","客户D","05-09","高","已排","已锁"],["✓","ORD20260503005","客户E","05-14","低","待排","正常"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td><span class="tag ${r[5] === "已锁" ? "orange" : r[5] === "待排" ? "blue" : "green"}">${r[5]}</span></td><td><span class="tag ${r[6] === "临期" ? "orange" : r[6] === "已锁" ? "gray" : "green"}">${r[6]}</span></td></tr>`).join("")}</tbody></table></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">运行前检查</h3></div><div class="panel-body"><div class="health"><div class="health-card green"><b>资源覆盖</b><p class="small">11 个工段可参与排产</p></div><div class="health-card orange"><b>锁定避让</b><p class="small">继承 3 张订单占用</p></div><div class="health-card red"><b>阻塞</b><p class="small">气攻无启用设备</p></div></div><div style="height:18px"></div>${issues()}<div style="height:16px"></div><button class="btn green" style="width:100%">运行排产</button></div></div></div>`);
+      }
+
+      function resultsPage() {
+        return layout("results", `<div class="grid cols-4">${metric("方案版本", "S-0505-02", "VER")}${metric("按期订单", "16", "OK", "green")}${metric("预计延期", "3", "LATE", "orange")}${metric("已锁订单", "5", "LOCK", "red")}</div><div class="grid cols-2" style="margin-top:16px"><div class="panel"><div class="panel-head"><h3 class="panel-title">订单级结果</h3><div class="toolbar"><span class="select">最新方案</span><span class="field">搜索订单</span></div></div><div class="panel-body"><table><thead><tr><th>订单号</th><th>客户</th><th>预计开始</th><th>预计完成</th><th>延期</th><th>瓶颈</th><th>锁定</th></tr></thead><tbody>${[["ORD20260502001","客户A","05-06 08:00","05-09 15:20","0天","焊接","否"],["ORD20260502002","客户B","05-06 13:00","05-12 16:50","1天","5m 龙门","否"],["ORD20260501003","客户C","05-07 08:00","05-14 10:00","2天","外协","是"],["ORD20260428009","客户D","05-05 08:00","05-08 16:10","0天","下料","是"],["ORD20260503005","客户E","05-09 08:00","05-13 11:30","0天","机加工","否"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td><span class="tag ${r[4] === "0天" ? "green" : "orange"}">${r[4]}</span></td><td>${r[5]}</td><td><span class="tag ${r[6] === "是" ? "orange" : "gray"}">${r[6]}</span></td></tr>`).join("")}</tbody></table></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">结果侧栏</h3></div><div class="panel-body">${loadTable()}<div style="height:16px"></div>${issues()}</div></div></div>`);
+      }
+
+      function managementPage() {
+        return layout("management", `<div class="grid cols-4">${metric("高风险订单", "5", "RISK", "red")}${metric("已延期", "2", "LATE", "orange")}${metric("瓶颈资源", "3", "BNE", "orange")}${metric("已处理", "8", "DONE", "green")}</div><div class="panel" style="margin-top:16px"><div class="panel-head"><h3 class="panel-title">筛选</h3><div class="toolbar"><span class="select">方案 S-0505-02</span><span class="select">未来 30 天</span><span class="select">全部风险等级</span><span class="select">全部类型</span><span class="field">客户</span><span class="select">处理状态</span></div></div></div><div class="grid cols-2" style="margin-top:16px"><div class="panel"><div class="panel-head"><h3 class="panel-title">经营问题清单</h3><span class="small">默认按严重程度排序</span></div><div class="panel-body"><table><thead><tr><th>等级</th><th>问题</th><th>对象</th><th>原因</th><th>状态</th><th>备注</th></tr></thead><tbody>${[["高","订单预计延期","ORD20260501003","外协排入 2 天","processing","已联系供应商"],["高","资源瓶颈","5m 龙门","85% 利用率","open","待调整"],["中","关键工序阻塞","气攻","无启用设备","open","待启用"],["中","临近交期","ORD20260502002","剩余缓冲 4 小时","paused","观察"],["低","外协影响","钣金外协","周期未知","resolved","已补周期"]].map((r) => `<tr><td><span class="tag ${r[0] === "高" ? "red" : r[0] === "中" ? "orange" : "blue"}">${r[0]}</span></td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td><span class="tag ${r[4] === "resolved" ? "green" : r[4] === "processing" ? "blue" : r[4] === "paused" ? "gray" : "orange"}">${r[4]}</span></td><td>${r[5]}</td></tr>`).join("")}</tbody></table></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">下钻定位</h3></div><div class="panel-body">${issues()}<div style="height:16px"></div>${loadTable()}</div></div></div>`);
+      }
+
+      function detailPage() {
+        return layout("detail", `<div class="grid cols-4">${metric("订单", "ORD-0103", "ORD")}${metric("预计完成", "05-14", "FIN", "orange")}${metric("延期", "2天", "LATE", "red")}${metric("关键瓶颈", "外协", "BNE", "orange")}</div><div class="grid cols-2" style="margin-top:16px"><div class="panel"><div class="panel-head"><h3 class="panel-title">零件时间线</h3></div><div class="panel-body"><div class="timeline">${[["部件A","下料 > 焊接 > 机加工 > 拼装","05-06 至 05-11","正常"],["子件A-1","下料 > 外协 > 拼装","05-07 至 05-14","延期"],["子件A-2","下料 > 焊接","05-06 至 05-09","正常"],["部件B","下料 > 5m龙门 > 拼装","05-08 至 05-12","临期"]].map((r) => `<div class="time-item"><b>${r[0]}</b><div class="path">${r[1].split(" > ").map((x, i, arr) => `<span>${x}</span>${i < arr.length - 1 ? "<i>></i>" : ""}`).join("")}</div><div><div>${r[2]}</div><span class="tag ${r[3] === "延期" ? "red" : r[3] === "临期" ? "orange" : "green"}">${r[3]}</span></div></div>`).join("")}</div></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">工序明细与依赖解释</h3></div><div class="panel-body"><table><thead><tr><th>工序</th><th>资源</th><th>开始</th><th>结束</th><th>前置</th><th>状态</th></tr></thead><tbody>${[["下料","下料-01","05-06 08:00","05-06 11:30","无","完成"],["焊接","焊接-03","05-07 08:00","05-07 16:00","下料 FS","完成"],["外协","钣金外协","05-08 08:00","05-10 17:00","下料 FS","进行中"],["机加工","加工中心-06","05-11 08:00","05-12 15:00","焊接 FS","计划"],["拼装","拼装-02","05-13 08:00","05-14 10:00","全部子件完成","计划"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td><td><span class="tag ${r[5] === "完成" ? "green" : r[5] === "进行中" ? "blue" : "gray"}">${r[5]}</span></td></tr>`).join("")}</tbody></table></div></div></div>`);
+      }
+
+      function boardPage() {
+        const rows = ["下料", "焊接", "5m 龙门", "机加工", "拼装", "外协"];
+        const days = ["05-05", "05-06", "05-07", "05-08", "05-09", "05-10", "05-11"];
+        return layout("board", `<div class="panel"><div class="panel-head"><h3 class="panel-title">日期矩阵</h3><div class="toolbar"><span class="select">按工段</span><span class="select">设备视图</span><span class="select">人员视图</span><span class="field">2026-05-05 至 2026-05-11</span></div></div><div class="panel-body"><div class="board"><div class="board-cell head">资源/日期</div>${days.map((d, i) => `<div class="board-cell head ${i === 5 ? "off" : ""}">${d}<br><span class="small">${i === 5 ? "周日" : "工作日"}</span></div>`).join("")}${rows.map((r, ri) => `<div class="board-cell rowhead">${r}</div>${days.map((d, i) => `<div class="board-cell ${i === 5 ? "off" : ""}">${i === 5 ? "" : (ri + i) % 3 === 0 ? '<span class="pill-task">ORD-0201 A件</span>' : (ri + i) % 3 === 1 ? '<span class="pill-task green">ORD-0103 子件</span>' : '<span class="pill-task orange">ORD-0202 外协</span>'}</div>`).join("")}`).join("")}</div></div></div>`);
+      }
+
+      function ganttPage() {
+        const rows = ["下料-01", "焊接-03", "龙门-01", "加工中心-06", "拼装-02", "外协-钣金"];
+        const days = ["05-05", "05-06", "05-07", "05-08", "05-09", "05-10", "05-11"];
+        return layout("gantt", `<div class="panel"><div class="panel-head"><h3 class="panel-title">设备时间轴</h3><div class="toolbar"><span class="select">最新方案</span><span class="select">按周</span><span class="field">搜索设备/订单</span></div></div><div class="panel-body"><div class="gantt-grid"><div class="gantt-cell head">设备</div>${days.map((d) => `<div class="gantt-cell head">${d}</div>`).join("")}${rows.map((r, ri) => `<div class="gantt-cell label">${r}</div>${days.map((d, i) => `<div class="gantt-cell">${(i + ri) % 4 === 0 ? '<span class="task" style="left:7px;width:86%">ORD-A</span>' : (i + ri) % 4 === 1 ? '<span class="task green" style="left:7px;width:72%">ORD-B</span>' : (i + ri) % 4 === 2 ? '<span class="task orange" style="left:7px;width:64%">外协</span>' : '<span class="task gray" style="left:7px;width:40%">空窗</span>'}</div>`).join("")}`).join("")}</div><div class="chip-row" style="margin-top:14px"><span class="chip">蓝色：内部加工</span><span class="chip">绿色：已完成/正常</span><span class="chip">橙色：外协/临期</span><span class="chip">灰色：空窗或休息</span></div></div></div>`);
+      }
+
+      function compatible(page, title) {
+        return layout(page, `<div class="grid cols-2"><div class="panel"><div class="panel-head"><h3 class="panel-title">${title}列表</h3><div class="toolbar"><span class="field">搜索</span><span class="select">全部状态</span></div></div><div class="panel-body"><table><thead><tr><th>编码</th><th>名称</th><th>归属</th><th>状态</th><th>说明</th></tr></thead><tbody>${[["A001","示例一","主线生产","active","兼容展示"],["A002","示例二","主线生产","active","可迁移"],["A003","示例三","旧 demo","disabled","弱化入口"],["A004","示例四","旧 demo","active","仍可访问"],["A005","示例五","旧 demo","active","不新增依赖"]].map((r) => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="tag ${r[3] === "active" ? "green" : "gray"}">${r[3]}</span></td><td>${r[4]}</td></tr>`).join("")}</tbody></table></div></div><div class="panel"><div class="panel-head"><h3 class="panel-title">迁移提示</h3></div><div class="panel-body"><div class="health"><div class="health-card green"><b>保留可访问</b><p class="small">不破坏旧演示链路</p></div><div class="health-card orange"><b>主导航弱化</b><p class="small">不作为 APS v2 主流程</p></div><div class="health-card green"><b>主线替代</b><p class="small">生产主线以 production_* 为准</p></div></div><div style="height:18px"></div>${issues()}</div></div></div>`);
+      }
+
+      const pages = {
+        home,
+        import: importPage,
+        resources: resourcesPage,
+        mapping: mappingPage,
+        personnel: personnelPage,
+        groups: groupsPage,
+        scheduling: schedulingPage,
+        board: boardPage,
+        results: resultsPage,
+        detail: detailPage,
+        gantt: ganttPage,
+        management: managementPage,
+        machines: () => compatible("machines", "设备管理"),
+        orders: () => compatible("orders", "订单管理"),
+        routings: () => compatible("routings", "工艺路线")
+      };
+
+      const page = location.hash ? location.hash.slice(1) : new URLSearchParams(location.search).get("page") || "home";
+      document.getElementById("root").innerHTML = (pages[page] || pages.home)();
+      window.__apsPages = Object.keys(pages);
+    </script>
+  </body>
+</html>

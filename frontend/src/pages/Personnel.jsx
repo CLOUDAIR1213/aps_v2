@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { getPersonnel, importPersonnel } from "../api/production";
+import { deletePersonnel, getPersonnel, importPersonnel } from "../api/production";
 import SummaryCards from "../components/SummaryCards";
 import StatusBadge from "../components/StatusBadge";
 
@@ -15,6 +15,7 @@ export default function Personnel() {
   const [importing, setImporting] = useState(false);
   const [filterCenter, setFilterCenter] = useState("");
   const [filterKeyword, setFilterKeyword] = useState("");
+  const [deletingPersonId, setDeletingPersonId] = useState(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -53,6 +54,22 @@ export default function Personnel() {
       setError(requestError?.response?.data?.detail || "人员导入失败。");
     } finally {
       setImporting(false);
+    }
+  };
+
+  const handleDeletePerson = async (person) => {
+    if (!window.confirm(`确认删除人员「${person.name}」？关联工段会一并移除。`)) return;
+    setDeletingPersonId(person.id);
+    setError("");
+    setMessage("");
+    try {
+      await deletePersonnel(person.id);
+      setMessage(`人员「${person.name}」已删除。`);
+      await loadData();
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "人员删除失败。");
+    } finally {
+      setDeletingPersonId(null);
     }
   };
 
@@ -134,7 +151,7 @@ export default function Personnel() {
         <div className="panel-header">
           <div>
             <h3 className="panel-title">人员花名册</h3>
-            <p className="panel-subtitle">按工段分组展示，支持筛选。</p>
+            <p className="panel-subtitle">逐人展示关联工段，支持筛选。</p>
           </div>
         </div>
 
@@ -171,18 +188,19 @@ export default function Personnel() {
                 <th>姓名</th>
                 <th>状态</th>
                 <th>关联工段</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
               {filteredPeople.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={{ textAlign: "center", padding: "2rem" }}>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "2rem" }}>
                     {people.length === 0 ? "暂无人员数据，请先导入排班表。" : "无匹配结果。"}
                   </td>
                 </tr>
               ) : (
                 grouped.map(([centerNames, members]) =>
-                  members.map((person, index) => (
+                  members.map((person) => (
                     <tr key={person.id}>
                       <td>{person.employee_no}</td>
                       <td>
@@ -194,9 +212,17 @@ export default function Personnel() {
                         </StatusBadge>
                       </td>
                       <td>
-                        {index === 0 ? (
-                          <span className="data-secondary">{centerNames}</span>
-                        ) : null}
+                        <span className="data-secondary">{centerNames}</span>
+                      </td>
+                      <td>
+                        <button
+                          className="button small danger"
+                          type="button"
+                          disabled={deletingPersonId === person.id}
+                          onClick={() => handleDeletePerson(person)}
+                        >
+                          {deletingPersonId === person.id ? "删除中..." : "删除"}
+                        </button>
                       </td>
                     </tr>
                   ))
