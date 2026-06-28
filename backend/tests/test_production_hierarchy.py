@@ -5,8 +5,11 @@ from app.services.production_import_service import get_parent_no
 from app.services.production_service import _build_operation_dependencies
 
 
-def part(no: str):
-    return SimpleNamespace(no=no)
+def part(no: str, source_row: int | None = None):
+    payload = {"no": no}
+    if source_row is not None:
+        payload["source_row"] = source_row
+    return SimpleNamespace(**payload)
 
 
 def op(operation_id: int, seq_no: int):
@@ -75,6 +78,20 @@ class ProductionHierarchyDependencyTests(unittest.TestCase):
         self.assertEqual(sequence_count, 0)
         self.assertEqual(hierarchy_count, 1)
         self.assertEqual(dependency_edges(dependencies), {(21, 22)})
+
+    def test_duplicate_parent_no_skips_ambiguous_hierarchy_edges(self):
+        dependencies, sequence_count, hierarchy_count = _build_operation_dependencies(
+            [part("1", 2), part("1", 3), part("1.1", 4)],
+            {
+                2: [op(31, 1)],
+                3: [op(32, 1)],
+                4: [op(33, 1), op(34, 2)],
+            },
+        )
+
+        self.assertEqual(sequence_count, 1)
+        self.assertEqual(hierarchy_count, 0)
+        self.assertEqual(dependency_edges(dependencies), {(34, 33)})
 
 
 if __name__ == "__main__":

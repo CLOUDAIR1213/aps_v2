@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import {
+  exportExternalWorkOrders,
   getExternalTasks,
   getProductionSchedules,
   getWorkCenters,
@@ -50,9 +51,10 @@ export default function ExternalTasks() {
   const [workCenters, setWorkCenters] = useState([]);
   const [selectedScheduleId, setSelectedScheduleId] = useState(requestedScheduleId);
   const [data, setData] = useState(null);
-  const [filters, setFilters] = useState({ work_center_id: "", external_status: "", order_no: "" });
+  const [filters, setFilters] = useState({ work_center_id: "", external_status: "", order_no: "", vendor_name: "" });
   const [editing, setEditing] = useState({});
   const [savingId, setSavingId] = useState(null);
+  const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -112,6 +114,11 @@ export default function ExternalTasks() {
   }, [requestedScheduleId]);
 
   const tasks = data?.tasks || [];
+  const vendorOptions = useMemo(() => {
+    const labels = new Set(tasks.map((task) => task.vendor_name || "未指定供应商"));
+    return [...labels].sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+  }, [tasks]);
+
   const externalSummaryItems = useMemo(() => {
     const pending = tasks.filter((task) => task.external_status === "pending").length;
     const exceptions = tasks.filter((task) => task.external_status === "exception").length;
@@ -152,6 +159,39 @@ export default function ExternalTasks() {
       setError(requestError?.response?.data?.detail || "外协任务更新失败。");
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const buildExportParams = () => Object.fromEntries(
+    Object.entries({ ...filters, schedule_id: selectedScheduleId })
+      .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+  );
+
+  const handleExport = async () => {
+    if (!selectedScheduleId || !tasks.length) {
+      return;
+    }
+    setExporting(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await exportExternalWorkOrders(buildExportParams());
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `外协工单_${data?.schedule?.schedule_no || selectedScheduleId}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setMessage("外协工单已导出。");
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "外协工单导出失败。");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -218,6 +258,19 @@ export default function ExternalTasks() {
             </select>
           </label>
           <label className="toolbar-field">
+            <span>供应商</span>
+            <select
+              className="field-input"
+              value={filters.vendor_name}
+              onChange={(event) => setFilters({ ...filters, vendor_name: event.target.value })}
+            >
+              <option value="">全部供应商</option>
+              {vendorOptions.map((vendor) => (
+                <option key={vendor} value={vendor}>{vendor}</option>
+              ))}
+            </select>
+          </label>
+          <label className="toolbar-field">
             <span>订单号</span>
             <input
               className="field-input"
@@ -226,6 +279,14 @@ export default function ExternalTasks() {
             />
           </label>
           <div className="toolbar-actions">
+            <button
+              className="button ghost"
+              type="button"
+              onClick={handleExport}
+              disabled={exporting || !selectedScheduleId || !tasks.length}
+            >
+              {exporting ? "导出中..." : "导出外协工单"}
+            </button>
             <button className="button" type="button" onClick={() => loadData(selectedScheduleId, filters)}>
               查询
             </button>
@@ -250,7 +311,7 @@ export default function ExternalTasks() {
             <thead>
               <tr>
                 <th>订单 / 零件</th>
-                <th>外协工段</th>
+                <th>供应商 / 外协工段</th>
                 <th>计划送出</th>
                 <th>预计返回</th>
                 <th>状态</th>
@@ -269,8 +330,8 @@ export default function ExternalTasks() {
                       <p className="data-secondary">{task.part_name}</p>
                     </td>
                     <td>
-                      <p className="data-primary">{task.work_center_name}</p>
-                      <p className="data-secondary">{task.vendor_name || "未填供应商"}</p>
+                      <p className="data-primary">{task.vendor_name || "未指定供应商"}</p>
+                      <p className="data-secondary">{task.work_center_name}</p>
                       <p className="data-secondary">{`${task.external_capacity_slots} 并发 / ${formatHours(task.planned_duration_hours)}`}</p>
                     </td>
                     <td>{formatDateTime(task.planned_send_at)}</td>

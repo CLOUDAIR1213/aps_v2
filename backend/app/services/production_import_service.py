@@ -136,8 +136,8 @@ async def parse_work_order_workbook(
 
     parts: list[ImportPartPreview] = []
     operations: list[ImportOperationPreview] = []
-    part_operation_counts: dict[str, int] = {}
-    part_hours: dict[str, float] = {}
+    part_operation_counts: dict[int, int] = {}
+    part_hours: dict[int, float] = {}
     external_blank_skipped_count = 0
     external_default_duration_count = 0
 
@@ -194,8 +194,8 @@ async def parse_work_order_workbook(
             capacity_hours=0,
         )
         parts.append(part)
-        part_operation_counts[no] = 0
-        part_hours[no] = 0
+        part_operation_counts[row_idx] = 0
+        part_hours[row_idx] = 0
 
         for col_idx, header, seq_no in operation_columns:
             raw_value = sheet.cell(row_idx, col_idx).value
@@ -285,23 +285,42 @@ async def parse_work_order_workbook(
                     mapped=header in mapping_rules,
                 )
             )
-            part_operation_counts[no] += 1
-            part_hours[no] += duration
+            part_operation_counts[row_idx] += 1
+            part_hours[row_idx] += duration
 
     part_no_set = {part.no for part in parts}
     no_counts = Counter(part.no for part in parts)
     duplicate_nos = {no for no, count in no_counts.items() if count > 1}
+    duplicate_no_drawing_pairs = {
+        pair
+        for pair, count in Counter((part.no, part.drawing_no) for part in parts).items()
+        if count > 1
+    }
     for part in parts:
-        part.operation_count = part_operation_counts.get(part.no, 0)
-        part.total_hours = round(part_hours.get(part.no, 0), 3)
+        part.operation_count = part_operation_counts.get(part.source_row, 0)
+        part.total_hours = round(part_hours.get(part.source_row, 0), 3)
         part.capacity_hours = round(part.total_hours * max(part.quantity, 1), 3)
-        if part.no in duplicate_nos:
+        if (part.no, part.drawing_no) in duplicate_no_drawing_pairs:
             issues.append(
                 ImportIssue(
                     severity="error",
                     row=part.source_row,
                     field="no",
-                    message=f"NO {part.no} 重复，无法建立确定的层级依赖。",
+                    message=(
+                        f"NO {part.no} 与图号 {part.drawing_no} 同时重复，无法区分是否为同一零件重复行。"
+                    ),
+                )
+            )
+        elif part.no in duplicate_nos:
+            issues.append(
+                ImportIssue(
+                    severity="warning",
+                    row=part.source_row,
+                    field="no",
+                    message=(
+                        f"NO {part.no} 重复，系统已按 Excel 行号拆分为独立零件节点；"
+                        "不确定的层级依赖不会自动建立。"
+                    ),
                 )
             )
         if part.parent_no and part.parent_no not in part_no_set:
@@ -311,6 +330,18 @@ async def parse_work_order_workbook(
                     row=part.source_row,
                     field="parent_no",
                     message=f"子件 {part.no} 未找到直接父级 {part.parent_no}，无法建立完整层级依赖。",
+                )
+            )
+        elif part.parent_no and no_counts.get(part.parent_no, 0) > 1:
+            issues.append(
+                ImportIssue(
+                    severity="warning",
+                    row=part.source_row,
+                    field="parent_no",
+                    message=(
+                        f"子件 {part.no} 的父级 NO {part.parent_no} 存在重复，"
+                        "系统不会自动建立该层级依赖。"
+                    ),
                 )
             )
         if part.operation_count == 0:
@@ -333,7 +364,7 @@ async def parse_work_order_workbook(
                     )
                 )
 
-    part_quantity_by_no = {part.no: part.quantity for part in parts}
+    part_quantity_by_row = {part.source_row: part.quantity for part in parts}
     summary = {
         "part_count": len(parts),
         "assembly_count": len([part for part in parts if part.is_assembly]),
@@ -342,14 +373,14 @@ async def parse_work_order_workbook(
         "work_center_count": len({op.work_center_name for op in operations}),
         "total_hours": round(sum(op.duration_hours for op in operations), 3),
         "total_capacity_hours": round(
-            sum(op.duration_hours * max(part_quantity_by_no.get(op.part_no, 1), 1) for op in operations),
+            sum(op.duration_hours * max(part_quantity_by_row.get(op.source_row, 1), 1) for op in operations),
             3,
         ),
         "external_task_count": len([op for op in operations if op.is_external]),
         "external_total_hours": round(sum(op.duration_hours for op in operations if op.is_external), 3),
         "external_total_capacity_hours": round(
             sum(
-                op.duration_hours * max(part_quantity_by_no.get(op.part_no, 1), 1)
+                op.duration_hours * max(part_quantity_by_row.get(op.source_row, 1), 1)
                 for op in operations
                 if op.is_external
             ),

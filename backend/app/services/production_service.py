@@ -845,7 +845,7 @@ def _sorted_operations(operations: list[ProductionOperation]) -> list[Production
 
 def _build_operation_dependencies(
     parts: list[Any],
-    operations_by_part_no: dict[str, list[ProductionOperation]],
+    operations_by_part_key: dict[Any, list[ProductionOperation]],
 ) -> tuple[list[OperationDependency], int, int]:
     dependencies: list[OperationDependency] = []
     seen_edges: set[tuple[int, int]] = set()
@@ -871,44 +871,51 @@ def _build_operation_dependencies(
         else:
             hierarchy_count += 1
 
-    for operations in operations_by_part_no.values():
+    for operations in operations_by_part_key.values():
         sorted_ops = _sorted_operations(operations)
         for previous, current in zip(sorted_ops, sorted_ops[1:], strict=False):
             add_dependency(current.id, previous.id, "sequence")
 
-    part_nos = {part.no for part in parts}
-    children_by_parent: dict[str, list[str]] = defaultdict(list)
+    def part_key(part: Any) -> Any:
+        return getattr(part, "source_row", part.no)
+
+    rows_by_no: dict[str, list[Any]] = defaultdict(list)
+    for part in parts:
+        rows_by_no[part.no].append(part_key(part))
+
+    children_by_parent: dict[Any, list[Any]] = defaultdict(list)
     for part in parts:
         parent_no = get_parent_no(part.no)
-        if parent_no and parent_no in part_nos:
-            children_by_parent[parent_no].append(part.no)
+        parent_candidates = rows_by_no.get(parent_no or "", [])
+        if parent_no and len(parent_candidates) == 1:
+            children_by_parent[parent_candidates[0]].append(part_key(part))
 
-    finish_anchor_cache: dict[str, list[ProductionOperation]] = {}
+    finish_anchor_cache: dict[Any, list[ProductionOperation]] = {}
 
-    def finish_anchors(part_no: str, visiting: set[str] | None = None) -> list[ProductionOperation]:
-        if part_no in finish_anchor_cache:
-            return finish_anchor_cache[part_no]
+    def finish_anchors(key: Any, visiting: set[Any] | None = None) -> list[ProductionOperation]:
+        if key in finish_anchor_cache:
+            return finish_anchor_cache[key]
         visiting = visiting or set()
-        if part_no in visiting:
+        if key in visiting:
             return []
-        visiting.add(part_no)
-        own_operations = _sorted_operations(operations_by_part_no.get(part_no, []))
+        visiting.add(key)
+        own_operations = _sorted_operations(operations_by_part_key.get(key, []))
         if own_operations:
             anchors = [own_operations[-1]]
         else:
             anchors = []
-            for child_no in children_by_parent.get(part_no, []):
-                anchors.extend(finish_anchors(child_no, visiting.copy()))
-        finish_anchor_cache[part_no] = anchors
+            for child_key in children_by_parent.get(key, []):
+                anchors.extend(finish_anchors(child_key, visiting.copy()))
+        finish_anchor_cache[key] = anchors
         return anchors
 
-    for parent_no, child_nos in children_by_parent.items():
-        parent_operations = _sorted_operations(operations_by_part_no.get(parent_no, []))
+    for parent_key, child_keys in children_by_parent.items():
+        parent_operations = _sorted_operations(operations_by_part_key.get(parent_key, []))
         if not parent_operations:
             continue
         parent_first_operation = parent_operations[0]
-        for child_no in child_nos:
-            for child_anchor in finish_anchors(child_no):
+        for child_key in child_keys:
+            for child_anchor in finish_anchors(child_key):
                 add_dependency(parent_first_operation.id, child_anchor.id, "hierarchy")
 
     return dependencies, sequence_count, hierarchy_count
@@ -1040,7 +1047,8 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
     await db.commit()
     await db.refresh(batch)
 
-    part_map: dict[str, Part] = {}
+    part_map: dict[int, Part] = {}
+    parts_by_no: dict[str, list[Part]] = defaultdict(list)
     for item in request.preview.parts:
         part = Part(
             work_order_id=work_order.id,
@@ -1055,20 +1063,22 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
             is_assembly=item.is_assembly,
         )
         db.add(part)
-        part_map[item.no] = part
+        part_map[item.source_row] = part
+        parts_by_no[item.no].append(part)
     await db.commit()
 
     for item in request.preview.parts:
-        part = part_map[item.no]
+        part = part_map[item.source_row]
         await db.refresh(part)
-        parent_no = get_parent_no(item.no)
-        if parent_no and parent_no in part_map:
-            part.parent_part_id = part_map[parent_no].id
+        parent_no = item.parent_no or get_parent_no(item.no)
+        parent_candidates = parts_by_no.get(parent_no or "", [])
+        if parent_no and len(parent_candidates) == 1:
+            part.parent_part_id = parent_candidates[0].id
     await db.commit()
 
-    operations_by_part_no: dict[str, list[ProductionOperation]] = defaultdict(list)
+    operations_by_part_key: dict[int, list[ProductionOperation]] = defaultdict(list)
     for item in request.preview.operations:
-        part = part_map.get(item.part_no)
+        part = part_map.get(item.source_row)
         center = center_map[item.work_center_name]
         if not part:
             continue
@@ -1084,12 +1094,12 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
             source_col=item.source_col,
         )
         db.add(operation)
-        operations_by_part_no[item.part_no].append(operation)
+        operations_by_part_key[item.source_row].append(operation)
     await db.commit()
 
     all_dependencies, sequence_dependency_count, hierarchy_dependency_count = _build_operation_dependencies(
         request.preview.parts,
-        operations_by_part_no,
+        operations_by_part_key,
     )
 
     if all_dependencies:
@@ -1100,7 +1110,7 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
         work_order=work_order,
         import_batch_id=batch.id,
         part_count=len(part_map),
-        operation_count=sum(len(items) for items in operations_by_part_no.values()),
+        operation_count=sum(len(items) for items in operations_by_part_key.values()),
         dependency_count=len(all_dependencies),
         sequence_dependency_count=sequence_dependency_count,
         hierarchy_dependency_count=hierarchy_dependency_count,
@@ -2508,7 +2518,7 @@ async def export_construction_sheets_to_excel(
     template_path = Path(__file__).resolve().parents[1] / "templates" / "construction_sheet_template.xlsx"
     if not template_path.exists():
         raise ValueError("施工单模板文件缺失，无法生成施工单。")
-    wb = load_workbook(template_path)
+    wb = load_workbook(template_path, keep_links=False)
     template_ws = wb.active
 
     def safe_sheet_title(base: str, used: set[str]) -> str:
@@ -3236,6 +3246,7 @@ async def get_external_tasks(
     work_center_id: int | None = None,
     external_status: str | None = None,
     order_no: str | None = None,
+    vendor_name: str | None = None,
 ) -> ExternalTaskListResponse:
     if schedule_id is None:
         result = await db.execute(select(ProductionSchedule).order_by(ProductionSchedule.created_at.desc()))
@@ -3247,6 +3258,9 @@ async def get_external_tasks(
 
     query = (
         select(ProductionScheduleItem)
+        .join(ProductionOperation, ProductionScheduleItem.operation_id == ProductionOperation.id)
+        .join(WorkOrder, ProductionOperation.work_order_id == WorkOrder.id)
+        .join(WorkCenter, ProductionOperation.work_center_id == WorkCenter.id)
         .where(
             ProductionScheduleItem.schedule_id == schedule.id,
             ProductionScheduleItem.is_external == True,
@@ -3264,17 +3278,178 @@ async def get_external_tasks(
     if external_status:
         query = query.where(ProductionScheduleItem.external_status == external_status)
     if order_no:
-        query = (
-            query.join(ProductionOperation, ProductionScheduleItem.operation_id == ProductionOperation.id)
-            .join(WorkOrder, ProductionOperation.work_order_id == WorkOrder.id)
-            .where(WorkOrder.order_no.like(f"%{order_no}%"))
-        )
+        query = query.where(WorkOrder.order_no.like(f"%{order_no}%"))
+    if vendor_name:
+        if vendor_name == "未指定供应商":
+            query = query.where(or_(WorkCenter.external_vendor_name == None, WorkCenter.external_vendor_name == ""))
+        else:
+            query = query.where(WorkCenter.external_vendor_name == vendor_name)
 
     result = await db.execute(query)
     return ExternalTaskListResponse(
         schedule=schedule,
         tasks=[_external_task_row(item) for item in result.scalars().all()],
     )
+
+
+async def export_external_work_orders_to_excel(
+    db: AsyncSession,
+    schedule_id: int | None = None,
+    work_center_id: int | None = None,
+    external_status: str | None = None,
+    order_no: str | None = None,
+    vendor_name: str | None = None,
+) -> tuple[bytes, str]:
+    response = await get_external_tasks(
+        db,
+        schedule_id=schedule_id,
+        work_center_id=work_center_id,
+        external_status=external_status,
+        order_no=order_no,
+        vendor_name=vendor_name,
+    )
+    schedule = response.schedule
+    tasks = sorted(
+        response.tasks,
+        key=lambda task: (
+            task.vendor_name or "未指定供应商",
+            task.planned_send_at,
+            task.order_no,
+            task.drawing_no,
+            task.operation_name,
+            task.schedule_item_id,
+        ),
+    )
+    if not tasks:
+        raise ValueError("当前筛选条件下没有外协任务，无法生成外协工单。")
+
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "external_work_order_template.xlsx"
+    if not template_path.exists():
+        raise ValueError("外协工单模板文件缺失，无法生成外协工单。")
+    wb = load_workbook(template_path, keep_links=False)
+    template_ws = wb.active
+
+    operation_rows = list(range(7, 25)) + list(range(26, 44))
+    rows_per_sheet = len(operation_rows)
+    status_labels = {
+        "pending": "待发出",
+        "sent": "已发出",
+        "returned": "已返回",
+        "exception": "异常",
+    }
+
+    def vendor_label(task: ExternalTaskRow) -> str:
+        return (task.vendor_name or "").strip() or "未指定供应商"
+
+    def safe_sheet_title(base: str, used: set[str]) -> str:
+        cleaned = re.sub(r"[:\\/?*\[\]]+", "-", base).strip() or "外协工单"
+        title = cleaned[:31]
+        if title not in used:
+            used.add(title)
+            return title
+        suffix = 2
+        while True:
+            suffix_text = f"-{suffix}"
+            candidate = f"{cleaned[:31 - len(suffix_text)]}{suffix_text}"
+            if candidate not in used:
+                used.add(candidate)
+                return candidate
+            suffix += 1
+
+    def fmt_day(value: datetime | None) -> str:
+        return value.strftime("%Y-%m-%d") if value else ""
+
+    def set_continuation_rows_visible(ws, visible: bool) -> None:
+        for row_idx in range(26, 45):
+            ws.row_dimensions[row_idx].hidden = not visible
+
+    def clear_task_rows(ws) -> None:
+        for row_idx in operation_rows:
+            for col_idx in (1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13):
+                ws.cell(row_idx, col_idx).value = None
+
+    grouped: dict[str, list[ExternalTaskRow]] = defaultdict(list)
+    for task in tasks:
+        grouped[vendor_label(task)].append(task)
+
+    used_titles: set[str] = set()
+    exported_task_ids: list[int] = []
+    sheet_count = 0
+    for vendor, vendor_tasks in grouped.items():
+        work_centers = " / ".join(sorted({task.work_center_name for task in vendor_tasks if task.work_center_name}))
+        order_text = " / ".join(sorted({task.order_no for task in vendor_tasks if task.order_no}))[:80]
+        latest_return = max((task.expected_return_at for task in vendor_tasks if task.expected_return_at), default=None)
+        for chunk_start in range(0, len(vendor_tasks), rows_per_sheet):
+            chunk = vendor_tasks[chunk_start:chunk_start + rows_per_sheet]
+            page_no = chunk_start // rows_per_sheet + 1
+            ws = wb.copy_worksheet(template_ws)
+            ws.title = safe_sheet_title(vendor if page_no == 1 else f"{vendor}-{page_no}", used_titles)
+            ws.print_title_rows = "1:6"
+            clear_task_rows(ws)
+            ws["L1"] = f"WX-{schedule.schedule_no}-{page_no}"
+            ws["L2"] = vendor
+            ws["C3"] = schedule.schedule_no
+            ws["F3"] = work_centers
+            ws["M3"] = order_text
+            ws["C4"] = "按当前筛选"
+            ws["F4"] = len(vendor_tasks)
+            ws["H4"] = f"预计最晚回厂：{fmt_day(latest_return)}"
+            ws["M4"] = datetime.now().strftime("%Y-%m-%d")
+
+            for index, task in enumerate(chunk, 1):
+                row_idx = operation_rows[index - 1]
+                exported_task_ids.append(task.schedule_item_id)
+                ws.cell(row_idx, 1).value = chunk_start + index
+                ws.cell(row_idx, 2).value = task.order_no
+                ws.cell(row_idx, 3).value = f"{task.drawing_no} / {task.part_no} / {task.part_name}"
+                ws.cell(row_idx, 6).value = ""
+                ws.cell(row_idx, 7).value = task.operation_name or task.work_center_name
+                ws.cell(row_idx, 8).value = fmt_day(task.planned_send_at)
+                ws.cell(row_idx, 9).value = fmt_day(task.expected_return_at)
+                ws.cell(row_idx, 10).value = status_labels.get(task.external_status, task.external_status)
+                ws.cell(row_idx, 11).value = ""
+                note = "；".join(
+                    value
+                    for value in [task.requirement_note or "", task.external_note or ""]
+                    if value
+                )
+                ws.cell(row_idx, 12).value = note
+                ws.cell(row_idx, 13).value = f"*WX-{task.schedule_item_id}*"
+
+            if len(chunk) > 18:
+                set_continuation_rows_visible(ws, True)
+                ws.print_area = "A1:M44"
+            else:
+                set_continuation_rows_visible(ws, False)
+                ws.print_area = "A1:M25"
+            sheet_count += 1
+
+    wb.remove(template_ws)
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"外协工单_{schedule.schedule_no or schedule.id}_{datetime.now().strftime('%Y%m%d%H%M')}.xlsx"
+    export_record = ExportBatch(
+        export_type="external_work_order",
+        schedule_id=schedule.id,
+        filename=filename,
+        params_json=json.dumps(
+            {
+                "schedule_id": schedule_id,
+                "work_center_id": work_center_id,
+                "external_status": external_status,
+                "order_no": order_no,
+                "vendor_name": vendor_name,
+                "schedule_item_ids": exported_task_ids,
+                "vendor_count": len(grouped),
+                "sheet_count": sheet_count,
+            },
+            ensure_ascii=False,
+        ),
+    )
+    db.add(export_record)
+    await db.commit()
+    return buffer.getvalue(), filename
 
 
 async def update_external_task(

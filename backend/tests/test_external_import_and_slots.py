@@ -167,6 +167,114 @@ class ExternalImportTests(unittest.TestCase):
 
         asyncio.run(run_test())
 
+    def test_duplicate_no_with_different_drawings_imports_by_source_row(self):
+        async def run_test():
+            engine = create_async_engine(
+                "sqlite+aiosqlite:///:memory:",
+                connect_args={"check_same_thread": False},
+                poolclass=StaticPool,
+            )
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            session_factory = async_sessionmaker(engine, expire_on_commit=False)
+            async with session_factory() as session:
+                center = WorkCenter(code="EXT", name="钣金外", is_external=True)
+                session.add(center)
+                await session.commit()
+                await session.refresh(center)
+                session.add(
+                    OperationMappingRule(
+                        source_name="钣金外",
+                        normalized_name="钣金外",
+                        work_center_id=center.id,
+                        is_external=True,
+                        status="active",
+                    )
+                )
+                await session.commit()
+
+                content = workbook_bytes(
+                    [
+                        {1: "1.7", 2: "DWG-A", 3: "duplicate A", 7: 2, 12: 2},
+                        {1: "1.7", 2: "DWG-B", 3: "duplicate B", 7: 3, 12: 3},
+                    ]
+                )
+                preview = await parse_work_order_workbook(
+                    content,
+                    "duplicate-no.xlsx",
+                    {"钣金外": {"is_external": True}},
+                )
+
+                duplicate_warnings = [
+                    issue for issue in preview.issues
+                    if issue.field == "no" and issue.severity == "warning" and "NO 1.7 重复" in issue.message
+                ]
+                duplicate_errors = [
+                    issue for issue in preview.issues
+                    if issue.field == "no" and issue.severity == "error"
+                ]
+                self.assertEqual(len(duplicate_warnings), 2)
+                self.assertEqual(duplicate_errors, [])
+                self.assertEqual([part.operation_count for part in preview.parts], [1, 1])
+                self.assertEqual(preview.summary["total_capacity_hours"], 13)
+
+                response = await commit_import(
+                    session,
+                    ImportCommitRequest(
+                        order=WorkOrderCreate(
+                            order_no="WO-DUP-1",
+                            customer="FUBEI",
+                            product_name="焊接结构件",
+                            quantity=1,
+                            priority=1,
+                            due_date=__import__("datetime").datetime(2026, 6, 30, 8, 0),
+                        ),
+                        preview=preview,
+                        create_missing_work_centers=False,
+                    ),
+                )
+
+                self.assertEqual(response.part_count, 2)
+                self.assertEqual(response.operation_count, 2)
+                saved_parts = {
+                    part.drawing_no: part
+                    for part in (await session.execute(select(Part))).scalars().all()
+                }
+                saved_operations = (await session.execute(select(ProductionOperation))).scalars().all()
+                self.assertEqual({operation.part_id for operation in saved_operations}, {
+                    saved_parts["DWG-A"].id,
+                    saved_parts["DWG-B"].id,
+                })
+
+            await engine.dispose()
+
+        asyncio.run(run_test())
+
+    def test_duplicate_no_and_drawing_still_blocks_import(self):
+        content = workbook_bytes(
+            [
+                {1: "1.7", 2: "DWG-A", 3: "duplicate A", 7: 1, 12: 2},
+                {1: "1.7", 2: "DWG-A", 3: "duplicate A copy", 7: 1, 12: 3},
+            ]
+        )
+        preview = asyncio.run(
+            parse_work_order_workbook(
+                content,
+                "duplicate-no-drawing.xlsx",
+                {"钣金外": {"is_external": True}},
+            )
+        )
+
+        self.assertTrue(
+            any(
+                issue.field == "no"
+                and issue.severity == "error"
+                and "NO 1.7 与图号 DWG-A 同时重复" in issue.message
+                for issue in preview.issues
+            )
+        )
+
 
 class ExternalSlotTests(unittest.TestCase):
     def test_external_capacity_two_slots_allows_parallel_start(self):

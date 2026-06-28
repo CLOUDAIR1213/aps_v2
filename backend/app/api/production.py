@@ -83,6 +83,7 @@ from app.services.production_service import (
     delete_work_order,
     disable_work_center,
     export_construction_sheets_to_excel,
+    export_external_work_orders_to_excel,
     export_personnel_workload_to_excel,
     export_schedule_to_excel,
     export_work_order_tickets_to_excel,
@@ -309,6 +310,7 @@ async def get_external_tasks_view(
     work_center_id: int | None = None,
     external_status: str | None = None,
     order_no: str | None = None,
+    vendor_name: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -318,9 +320,38 @@ async def get_external_tasks_view(
             work_center_id=work_center_id,
             external_status=external_status,
             order_no=order_no,
+            vendor_name=vendor_name,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/production/external-tasks/export")
+async def export_external_work_orders(
+    schedule_id: int | None = None,
+    work_center_id: int | None = None,
+    external_status: str | None = None,
+    order_no: str | None = None,
+    vendor_name: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        content, filename = await export_external_work_orders_to_excel(
+            db,
+            schedule_id=schedule_id,
+            work_center_id=work_center_id,
+            external_status=external_status,
+            order_no=order_no,
+            vendor_name=vendor_name,
+        )
+        encoded = quote(filename)
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.patch(

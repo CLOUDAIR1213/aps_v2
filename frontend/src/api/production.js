@@ -145,6 +145,14 @@ export const getExternalTasks = async (params = {}) => {
   return response.data;
 };
 
+export const exportExternalWorkOrders = async (params = {}) => {
+  const response = await apiClient.get("/api/production/external-tasks/export", {
+    params,
+    responseType: "blob",
+  });
+  return response;
+};
+
 export const updateExternalTask = async (scheduleItemId, payload) => {
   const response = await apiClient.patch(`/api/production/external-tasks/${scheduleItemId}`, payload);
   return response.data;
