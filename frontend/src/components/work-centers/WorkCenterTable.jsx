@@ -48,7 +48,7 @@ export default function WorkCenterTable({
               <th>状态</th>
               <th>设备数</th>
               <th>日产能</th>
-              <th>默认周期</th>
+              <th>外协能力</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -78,7 +78,16 @@ export default function WorkCenterTable({
                       {center.is_external ? "--" : `${activeMachines.length}/${centerMachines.length}`}
                     </td>
                     <td>{`${center.default_capacity_per_day} min`}</td>
-                    <td>{`${center.default_duration_hours}h`}</td>
+                    <td>
+                      {center.is_external ? (
+                        <>
+                          <p className="data-primary">{`${center.external_capacity_slots || 1} 并发 / ${center.external_lead_time_hours || center.default_duration_hours}h`}</p>
+                          <p className="data-secondary">{center.external_vendor_name || "未填供应商"}</p>
+                        </>
+                      ) : (
+                        "--"
+                      )}
+                    </td>
                     <td>
                       <div className="row-actions">
                         <button className="button small ghost" type="button" onClick={() => onEditCenter(center)}>

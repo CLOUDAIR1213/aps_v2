@@ -7,8 +7,8 @@ import {
   getProductionSchedulingResult
 } from "../api/production";
 import CurrentScheduleBanner from "../components/common/CurrentScheduleBanner";
+import CompactSummaryStrip from "../components/common/CompactSummaryStrip";
 import GanttChart from "../components/GanttChart";
-import SummaryCards from "../components/SummaryCards";
 import StatusBadge from "../components/StatusBadge";
 import { formatDateTime, formatHours, getDurationHours } from "../utils/formatters";
 import { buildScheduleBoardPath, buildSchedulePath, setActiveScheduleId } from "../utils/scheduleContext";
@@ -74,7 +74,7 @@ export default function Gantt() {
     ganttStart !== null && ganttEnd !== null ? getDurationHours(ganttStart, ganttEnd) : 0;
 
   const cards = [
-    { title: "资源道", value: data.length, meta: "内部设备与外协资源", accent: "#205c52" },
+    { title: "资源道", value: data.length, meta: "内部人员与外协资源", accent: "#205c52" },
     { title: "时间块", value: allTasks.length, meta: "零件-工序任务", accent: "#2d5d8c" },
     { title: "观察窗口", value: formatHours(horizonHours), meta: "最早开始至最晚结束", accent: "#b97012" },
     {
@@ -89,14 +89,14 @@ export default function Gantt() {
     <section className="page-grid">
       {error ? <div className="alert danger">{error}</div> : null}
       <CurrentScheduleBanner loading={loading} overview={overview} schedule={latestResult?.schedule} />
-      <SummaryCards cards={cards} loading={loading} />
+      <CompactSummaryStrip className="gantt-summary-strip" items={cards} loading={loading} />
 
-      <div className="panel">
+      <div className="panel compact-page-panel">
         <div className="panel-header">
           <div>
-            <h3 className="panel-title">资源排产时间轴</h3>
+            <h3 className="panel-title">排产时间轴</h3>
             <p className="panel-subtitle">
-              按资源/设备道观察任务顺序、等待和瓶颈，用于判断方案是否可执行。
+              按人员道观察任务顺序、等待和瓶颈；设备仅作为辅助信息保留。
             </p>
           </div>
           {latestResult ? <StatusBadge tone="info">{latestResult.schedule.status}</StatusBadge> : null}

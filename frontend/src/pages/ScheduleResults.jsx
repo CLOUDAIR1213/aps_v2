@@ -217,7 +217,7 @@ export default function ScheduleResults() {
     <section className="page-grid completion-overview">
       {message ? <div className="alert success">{message}</div> : null}
 
-      <div className="panel completion-hero">
+      <div className="panel completion-hero compact-page-panel">
         <div className="panel-header">
           <div>
             <h3 className="panel-title">订单完工表</h3>
@@ -238,13 +238,12 @@ export default function ScheduleResults() {
           />
         </div>
 
-        <div className="completion-summary-grid">
+        <div className="compact-summary-strip completion-summary-strip">
           {completionSummary.map((item) => (
-            <div className="completion-summary-card" key={item.label}>
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
+            <span key={item.label}>
+              {item.label}：<strong>{item.value}</strong>
               <small>{item.meta}</small>
-            </div>
+            </span>
           ))}
         </div>
       </div>

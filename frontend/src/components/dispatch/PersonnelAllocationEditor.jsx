@@ -5,6 +5,7 @@ function minutesToHours(minutes) {
 }
 
 export default function PersonnelAllocationEditor({
+  batchMode = false,
   canSave,
   draft = [],
   draftPersonIds = [],
@@ -19,26 +20,53 @@ export default function PersonnelAllocationEditor({
   ratioDelta,
   ratiosValid,
   saving,
+  selectedBatchSummary = null,
   selectedTask,
   suggestedPersonnel = [],
 }) {
+  const hasSelection = batchMode ? selectedBatchSummary?.taskCount > 0 : selectedTask;
+  const totalMinutes = batchMode ? selectedBatchSummary?.totalMinutes : selectedTask?.planned_minutes;
+  const hasAssignablePersonnel = !hasSelection || suggestedPersonnel.length > 0;
+
   return (
     <aside className="panel dispatch-editor">
       <div className="panel-header">
         <div>
           <h3 className="panel-title">人员分摊</h3>
           <p className="panel-subtitle">
-            {selectedTask ? `${selectedTask.order_no} / ${selectedTask.operation_name}` : "请选择左侧任务"}
+            {batchMode
+              ? selectedBatchSummary?.taskCount
+                ? `批量模式 / 已选 ${selectedBatchSummary.taskCount} 条任务`
+                : "请选择左侧汇总任务"
+              : selectedTask
+                ? `${selectedTask.order_no} / ${selectedTask.operation_name}`
+                : "请选择左侧任务"}
           </p>
         </div>
       </div>
 
-      {selectedTask ? (
+      {hasSelection ? (
         <>
           <div className="detail-list">
+            {batchMode ? (
+              <>
+                <div className="detail-row">
+                  <span className="detail-key">涉及工段</span>
+                  <span className="detail-value">{selectedBatchSummary.workCenterNames.join("、") || "--"}</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-key">涉及工序</span>
+                  <span className="detail-value">{selectedBatchSummary.operationNames.join("、") || "--"}</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-key">涉及订单</span>
+                  <span className="detail-value">{selectedBatchSummary.orderCount}</span>
+                </div>
+              </>
+            ) : null}
             <div className="detail-row">
-              <span className="detail-key">任务工时</span>
-              <span className="detail-value">{minutesToHours(selectedTask.planned_minutes)}</span>
+              <span className="detail-key">{batchMode ? "已选总工时" : "任务工时"}</span>
+              <span className="detail-value">{minutesToHours(totalMinutes)}</span>
             </div>
             <div className="detail-row">
               <span className="detail-key">占比合计</span>
@@ -49,7 +77,7 @@ export default function PersonnelAllocationEditor({
           <div className="allocation-editor-list">
             {draft.map((row, index) => {
               const ratio = Number(row.ratio_percent) || 0;
-              const minutes = Math.round(selectedTask.planned_minutes * ratio / 100);
+              const minutes = Math.round(totalMinutes * ratio / 100);
               return (
                 <div className="allocation-editor-row" key={`${row.person_id}-${index}`}>
                   <select
@@ -83,25 +111,32 @@ export default function PersonnelAllocationEditor({
           </div>
 
           <div className="panel-actions dispatch-editor-actions">
-            <button className="button ghost" type="button" onClick={onAddRow}>添加人员</button>
-            <button className="button ghost" type="button" onClick={onAssignSingleFull}>
+            <button className="button ghost" type="button" onClick={onAddRow} disabled={!hasAssignablePersonnel}>添加人员</button>
+            <button className="button ghost" type="button" onClick={onAssignSingleFull} disabled={!hasAssignablePersonnel}>
               单人 100%
             </button>
-            <button className="button ghost" type="button" onClick={onDistributeEvenly} disabled={draft.length < 2}>
+            <button className="button ghost" type="button" onClick={onDistributeEvenly} disabled={!hasAssignablePersonnel || draft.length < 2}>
               多人均分
             </button>
             <button className="button" type="button" onClick={onSave} disabled={!canSave || saving}>
               {saving ? "保存中..." : "保存派工"}
             </button>
           </div>
+          {!hasAssignablePersonnel ? (
+            <div className="alert warning">
+              当前没有可派工的在职人员，请先到基础配置维护人员。
+            </div>
+          ) : null}
           {mismatchedDraftPeople.length ? (
             <div className="alert warning">
-              {mismatchedDraftPeople.map((person) => person.name).join("、")} 不属于当前工段“{selectedTask.work_center_name}”，可继续保存，请先确认跨工段派工是否合理。
+              {mismatchedDraftPeople.map((person) => person.name).join("、")} 不属于当前工段“{selectedTask.work_center_name}”，可跨工段保存，请确认派工安排。
             </div>
           ) : null}
           {!canSave ? (
             <div className="alert warning">
-              {!draft.length
+              {!hasAssignablePersonnel
+                ? "当前暂无可选人员。"
+                : !draft.length
                 ? "请至少添加一名人员。"
                 : draftPersonIds.length !== draft.length
                   ? "每行都需要选择一名在职人员。"
@@ -114,7 +149,7 @@ export default function PersonnelAllocationEditor({
           ) : null}
         </>
       ) : (
-        <div className="alert info">请选择一个任务后编辑分摊。</div>
+        <div className="alert info">{batchMode ? "请先在汇总视图中选择任务。" : "请选择一个任务后编辑分摊。"}</div>
       )}
     </aside>
   );

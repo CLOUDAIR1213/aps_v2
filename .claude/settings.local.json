@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(\"C:\\\\Users\\\\48295\\\\.conda\\\\envs\\\\aps\\\\python.exe\" -m alembic current)",
-      "Bash(C:\\\\Users\\\\48295\\\\.conda\\\\envs\\\\aps\\\\python.exe *)"
+      "Bash(C:\\\\Users\\\\48295\\\\.conda\\\\envs\\\\aps\\\\python.exe *)",
+      "Bash(/c/Users/48295/.conda/envs/aps/python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000)",
+      "Bash(npm run *)"
     ]
   }
 }

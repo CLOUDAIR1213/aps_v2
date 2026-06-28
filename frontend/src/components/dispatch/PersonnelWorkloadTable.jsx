@@ -7,7 +7,9 @@ function minutesToHours(minutes) {
 }
 
 export default function PersonnelWorkloadTable({
+  exporting,
   expandedPersonId,
+  onExport,
   onTogglePerson,
   workload = [],
 }) {
@@ -17,6 +19,11 @@ export default function PersonnelWorkloadTable({
         <div>
           <h3 className="panel-title">人员工时汇总</h3>
           <p className="panel-subtitle">按当前方案汇总人员任务数、计划工时和任务明细。</p>
+        </div>
+        <div className="panel-actions">
+          <button className="button ghost" type="button" onClick={onExport} disabled={exporting}>
+            {exporting ? "导出中..." : "导出 Excel"}
+          </button>
         </div>
       </div>
       <div className="table-shell">

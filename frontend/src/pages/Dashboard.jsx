@@ -11,8 +11,8 @@ import {
   getWorkCenters,
   getWorkOrders
 } from "../api/production";
+import CompactSummaryStrip from "../components/common/CompactSummaryStrip";
 import StatusBadge from "../components/StatusBadge";
-import SummaryCards from "../components/SummaryCards";
 import { formatDateTime } from "../utils/formatters";
 import { buildSchedulePath, setActiveScheduleId } from "../utils/scheduleContext";
 
@@ -43,7 +43,7 @@ function getPrimaryAction({ hasBaseData, hasOrders, hasSchedule, latestScheduleI
     return {
       label: "去排产驾驶台",
       to: "/scheduling",
-      title: "下一步生成排产方案",
+      title: "下一步生成当前排产",
       description: "已有可排订单，但还没有方案。选择订单和开始日期后运行排产。"
     };
   }
@@ -51,7 +51,7 @@ function getPrimaryAction({ hasBaseData, hasOrders, hasSchedule, latestScheduleI
     label: "查看完工时间",
     to: buildSchedulePath("/schedule-results", latestScheduleId),
     title: "下一步复核订单完工表",
-    description: "已有排产方案，先从订单预计完工、延期和锁定计划状态开始复核。"
+      description: "已有当前排产，先从订单预计完工、延期和锁定计划状态开始复核。"
   };
 }
 
@@ -193,7 +193,7 @@ export default function Dashboard() {
       accent: "#315f88"
     },
     {
-      title: "最新排产方案",
+      title: "当前排产方案",
       value: analysis.latestSchedule?.schedule_no || "--",
       meta: analysis.latestSchedule ? formatDateTime(analysis.latestSchedule.created_at) : "尚未生成",
       accent: "#1f5d55"
@@ -216,7 +216,7 @@ export default function Dashboard() {
     <section className="page-grid planner-workbench">
       {error ? <div className="alert danger">{error}</div> : null}
 
-      <SummaryCards cards={cards} loading={loading} />
+      <CompactSummaryStrip className="dashboard-summary-strip" items={cards} loading={loading} />
 
       <div className="planner-command-panel">
         <div className="planner-command-copy">

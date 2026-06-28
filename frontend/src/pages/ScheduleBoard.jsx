@@ -14,9 +14,9 @@ import { formatDateTime, formatHours } from "../utils/formatters";
 import { buildSchedulePath, getActiveScheduleId, setActiveScheduleId } from "../utils/scheduleContext";
 
 const viewModes = [
+  { value: "by_person", label: "人员" },
   { value: "by_work_center", label: "工段" },
-  { value: "by_machine", label: "设备" },
-  { value: "by_person", label: "人员" }
+  { value: "by_machine", label: "设备" }
 ];
 
 function toDateInputValue(value) {
@@ -47,7 +47,7 @@ export default function ScheduleBoard() {
     start_date: "",
     days: 14,
     order_id: "",
-    view_mode: "by_work_center"
+    view_mode: "by_person"
   });
 
   const resolveDefaultStartDate = async (currentScheduleId) => {
@@ -215,12 +215,12 @@ export default function ScheduleBoard() {
     <section className="page-grid">
       <CurrentScheduleBanner loading={loading} overview={overview} schedule={board?.schedule} />
 
-      <div className="panel">
+      <div className="panel compact-page-panel">
         <div className="panel-header">
           <div>
             <h3 className="panel-title">生产排班表</h3>
             <p className="panel-subtitle">
-              现场复核每天工段、设备或人员在做什么，配置维护统一回到基础数据页面。
+              默认按人员复核每天任务，工段和设备视图保留为辅助查看。
             </p>
           </div>
           <div className="panel-actions">
@@ -236,9 +236,9 @@ export default function ScheduleBoard() {
           </div>
         </div>
 
-        <form className="form-grid compact-filter-grid" onSubmit={handleSubmit}>
-          <label className="field-label">
-            视图
+        <form className="table-toolbar board-filter-toolbar" onSubmit={handleSubmit}>
+          <label className="toolbar-field">
+            <span>视图</span>
             <select
               className="field-input"
               value={filters.view_mode}
@@ -256,8 +256,8 @@ export default function ScheduleBoard() {
               ))}
             </select>
           </label>
-          <label className="field-label">
-            工段
+          <label className="toolbar-field">
+            <span>工段</span>
             <select
               className="field-input"
               value={filters.work_center}
@@ -271,8 +271,8 @@ export default function ScheduleBoard() {
               ))}
             </select>
           </label>
-          <label className="field-label">
-            工单
+          <label className="toolbar-field">
+            <span>工单</span>
             <select
               className="field-input"
               value={filters.order_id}
@@ -286,8 +286,8 @@ export default function ScheduleBoard() {
               ))}
             </select>
           </label>
-          <label className="field-label">
-            日期跨度
+          <label className="toolbar-field">
+            <span>日期跨度</span>
             <input
               className="field-input"
               type="number"
@@ -297,8 +297,8 @@ export default function ScheduleBoard() {
               onChange={(event) => setFilters({ ...filters, days: event.target.value })}
             />
           </label>
-          <label className="field-label">
-            搜索
+          <label className="toolbar-field">
+            <span>搜索</span>
             <input
               className="field-input"
               value={query}
@@ -306,7 +306,7 @@ export default function ScheduleBoard() {
               placeholder="图号、工单、零件、人员"
             />
           </label>
-          <div className="form-actions">
+          <div className="toolbar-actions">
             <button className="button" type="submit" disabled={loading}>
               {loading ? "加载中..." : "刷新"}
             </button>
@@ -349,30 +349,14 @@ export default function ScheduleBoard() {
         {error ? <div className="alert danger">{error}</div> : null}
       </div>
 
-      <div className="summary-grid">
-        <div className="metric-card" style={{ "--metric-accent": "#205c52" }}>
-          <p className="metric-label">可见任务</p>
-          <p className="metric-value">{rows.length}</p>
-          <p className="metric-meta">{board?.schedule?.schedule_no || "--"}</p>
-        </div>
-        <div className="metric-card" style={{ "--metric-accent": "#2d5d8c" }}>
-          <p className="metric-label">可见工时</p>
-          <p className="metric-value">{formatHours(visibleHours)}</p>
-          <p className="metric-meta">按当前日期范围统计</p>
-        </div>
-        <div className="metric-card" style={{ "--metric-accent": "#b97012" }}>
-          <p className="metric-label">外协任务</p>
-          <p className="metric-value">{externalRows}</p>
-          <p className="metric-meta">以黄色标签显示</p>
-        </div>
-        <div className="metric-card" style={{ "--metric-accent": "#c44733" }}>
-          <p className="metric-label">逾期任务</p>
-          <p className="metric-value">{lateRows}</p>
-          <p className="metric-meta">以红色标签显示</p>
-        </div>
+      <div className="compact-summary-strip board-summary-strip">
+        <span>可见任务：<strong>{rows.length}</strong><small>{board?.schedule?.schedule_no || "--"}</small></span>
+        <span>可见工时：<strong>{formatHours(visibleHours)}</strong></span>
+        <span>外协任务：<strong>{externalRows}</strong></span>
+        <span>逾期任务：<strong>{lateRows}</strong></span>
       </div>
 
-      <div className="panel">
+      <div className="panel board-matrix-panel">
         <div className="board-matrix-header">
           <div>
             <h3 className="panel-title">排班矩阵</h3>
@@ -419,7 +403,7 @@ export default function ScheduleBoard() {
             <p className="empty-state-copy">请先运行生产排产。</p>
           </div>
         ) : (
-          <div className="board-shell">
+          <div className="board-shell board-matrix-scroll">
             <table className="board-table">
               <thead>
                 <tr>
@@ -428,7 +412,7 @@ export default function ScheduleBoard() {
                   <th className="board-meta-col">数量</th>
                   <th className="board-meta-col">工时</th>
                   <th className="board-meta-col">交期</th>
-                  <th className="board-meta-col">设备/人员</th>
+                  <th className="board-meta-col">人员/设备</th>
                   {board.date_columns.map((column) => (
                     <th
                       key={column.date}
@@ -450,8 +434,11 @@ export default function ScheduleBoard() {
                       <p className="data-primary">{row.drawing_no}</p>
                       <p className="data-secondary">{`${row.part_no} / ${row.part_name}`}</p>
                       <p className="data-secondary">{`${row.operation_name} / ${toDateInputValue(row.planned_start)}-${toDateInputValue(row.planned_end)}`}</p>
-                          <div className="board-badges">
+                      <div className="board-badges">
                         <StatusBadge tone="info">{row.order_no}</StatusBadge>
+                        {row.requirement_note ? (
+                          <StatusBadge tone="warning" title={row.requirement_note}>加工要求</StatusBadge>
+                        ) : null}
                         {row.is_external ? <StatusBadge tone="warning">外协</StatusBadge> : null}
                         {row.is_late ? <StatusBadge tone="danger">逾期</StatusBadge> : null}
                       </div>
@@ -463,8 +450,8 @@ export default function ScheduleBoard() {
                       <span>{toDateInputValue(row.due_date)}</span>
                     </td>
                     <td className="board-meta-col">
-                      <p className="data-primary">{row.machine_name || "外协"}</p>
-                      <p className="data-secondary">{row.person_name || "未派工"}</p>
+                      <p className="data-primary">{row.person_name || "未派工"}</p>
+                      <p className="data-secondary">{row.machine_name || (row.is_external ? "外协" : "设备仅展示")}</p>
                     </td>
                     {row.daily_cells.map((cell, index) => {
                       const column = board.date_columns[index];

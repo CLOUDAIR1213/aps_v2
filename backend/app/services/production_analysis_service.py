@@ -31,20 +31,41 @@ from app.schemas.production import (
     ScheduleRiskResponse,
     ScheduleRiskRow,
 )
-from app.services.production_service import is_workday, scheduled_work_minutes
+from app.services.production_service import (
+    is_monitor_hidden_schedule_item,
+    is_workday,
+    scheduled_work_minutes,
+)
 
 
 async def list_production_schedules(db: AsyncSession) -> ProductionScheduleListResponse:
-    result = await db.execute(select(ProductionSchedule).order_by(ProductionSchedule.created_at.desc()))
-    return ProductionScheduleListResponse(schedules=list(result.scalars().all()))
+    current = await db.scalar(
+        select(ProductionSchedule).where(ProductionSchedule.schedule_no == "PS-CURRENT")
+    )
+    if current is None:
+        current = await db.scalar(
+            select(ProductionSchedule)
+            .where(ProductionSchedule.status == "active")
+            .order_by(ProductionSchedule.created_at.desc(), ProductionSchedule.id.desc())
+            .limit(1)
+        )
+    return ProductionScheduleListResponse(schedules=[current] if current else [])
 
 
 async def _resolve_schedule(db: AsyncSession, schedule_id: int | None) -> ProductionSchedule:
     if schedule_id is not None:
         schedule = await db.get(ProductionSchedule, schedule_id)
     else:
-        result = await db.execute(select(ProductionSchedule).order_by(ProductionSchedule.created_at.desc()))
-        schedule = result.scalars().first()
+        schedule = await db.scalar(
+            select(ProductionSchedule).where(ProductionSchedule.schedule_no == "PS-CURRENT")
+        )
+        if schedule is None:
+            schedule = await db.scalar(
+                select(ProductionSchedule)
+                .where(ProductionSchedule.status == "active")
+                .order_by(ProductionSchedule.created_at.desc(), ProductionSchedule.id.desc())
+                .limit(1)
+            )
     if schedule is None:
         raise ValueError("暂无排产方案，请先执行生产排产。")
     return schedule
@@ -93,39 +114,60 @@ def _workday_count(start_day: date, end_day: date) -> int:
 
 
 def _resource_load_rows(schedule: ProductionSchedule, items: list[ProductionScheduleItem]) -> ResourceLoadResponse:
+    items = [item for item in items if not is_monitor_hidden_schedule_item(item)]
     if not items:
         return ResourceLoadResponse(schedule=schedule, resources=[])
 
     first_day = min(item.start_time.date() for item in items)
     last_day = max(item.end_time.date() for item in items)
     workdays = _workday_count(first_day, last_day)
-    groups: dict[tuple[int, int | None], dict] = {}
+    groups: dict[tuple[int, str], dict] = {}
 
     for item in items:
         operation = item.operation
         center = operation.work_center
-        key = (item.work_center_id, item.machine_id)
-        row = groups.setdefault(
-            key,
-            {
-                "work_center_id": item.work_center_id,
-                "work_center_name": center.name,
-                "machine_id": item.machine_id,
-                "machine_name": item.machine.name if item.machine else "外协",
-                "busy_minutes": 0,
-                "is_external": item.is_external,
-                "capacity_per_day": (
-                    center.default_capacity_per_day
-                    if item.is_external or item.machine is None
-                    else item.machine.capacity_per_day
-                ),
-            },
-        )
-        row["busy_minutes"] += scheduled_work_minutes(item.start_time, item.end_time)
+        if item.is_external or not item.personnel_allocations:
+            load_entries = [("external", None, "外协", scheduled_work_minutes(item.start_time, item.end_time))]
+        else:
+            load_entries = [
+                (
+                    f"person:{allocation.person_id}",
+                    allocation.person_id,
+                    allocation.person.name,
+                    allocation.planned_minutes,
+                )
+                for allocation in item.personnel_allocations
+            ]
+        for resource_key, person_id, person_name, busy_minutes in load_entries:
+            key = (item.work_center_id, resource_key)
+            row = groups.setdefault(
+                key,
+                {
+                    "work_center_id": item.work_center_id,
+                    "work_center_name": center.name,
+                    "machine_id": item.machine_id,
+                    "machine_name": person_name if person_id else "外协",
+                    "person_id": person_id,
+                    "person_name": person_name,
+                    "busy_minutes": 0,
+                    "task_count": 0,
+                    "latest_finish_time": None,
+                    "is_external": item.is_external,
+                    "capacity_per_day": center.default_capacity_per_day,
+                    "external_capacity_slots": max(int(center.external_capacity_slots or 1), 1),
+                },
+            )
+            row["busy_minutes"] += busy_minutes
+            row["task_count"] += 1
+            row["latest_finish_time"] = max(
+                row["latest_finish_time"] or item.end_time,
+                item.end_time,
+            )
 
     resources: list[ResourceLoadRow] = []
     for row in groups.values():
-        available_minutes = max(workdays * int(row.pop("capacity_per_day")), 1)
+        capacity_slots = row["external_capacity_slots"] if row["is_external"] else 1
+        available_minutes = max(workdays * int(row.pop("capacity_per_day")) * capacity_slots, 1)
         utilization = round(row["busy_minutes"] / available_minutes, 3)
         resources.append(
             ResourceLoadRow(
@@ -138,6 +180,15 @@ def _resource_load_rows(schedule: ProductionSchedule, items: list[ProductionSche
 
     resources.sort(key=lambda resource: resource.utilization, reverse=True)
     return ResourceLoadResponse(schedule=schedule, resources=resources)
+
+
+def _load_lookup_key_for_item(item: ProductionScheduleItem) -> list[tuple[int, str]]:
+    if item.is_external or not item.personnel_allocations:
+        return [(item.work_center_id, "external")]
+    return [
+        (item.work_center_id, f"person:{allocation.person_id}")
+        for allocation in item.personnel_allocations
+    ]
 
 
 async def get_production_resource_load(
@@ -157,7 +208,7 @@ async def get_production_scheduling_overview(
     items = await _load_schedule_items(db, schedule.id)
     load = _resource_load_rows(schedule, items)
     load_by_resource = {
-        (row.work_center_id, row.machine_id): row
+        (row.work_center_id, "external" if row.is_external else f"person:{row.person_id}"): row
         for row in load.resources
     }
     items_by_order: dict[int, list[ProductionScheduleItem]] = defaultdict(list)
@@ -175,13 +226,26 @@ async def get_production_scheduling_overview(
 
     rows: list[ProductionOrderOverviewRow] = []
     for order_id, order_items in items_by_order.items():
-        first_item = order_items[0]
+        visible_order_items = [
+            item for item in order_items if not is_monitor_hidden_schedule_item(item)
+        ]
+        if not visible_order_items:
+            continue
+        first_item = visible_order_items[0]
         work_order = first_item.operation.work_order
-        planned_start = min(item.start_time for item in order_items)
-        planned_end = max(item.end_time for item in order_items)
+        planned_start = min(item.start_time for item in visible_order_items)
+        planned_end = max(item.end_time for item in visible_order_items)
         delayed = planned_end > work_order.due_date
-        latest_item = max(order_items, key=lambda item: item.end_time)
-        latest_load = load_by_resource.get((latest_item.work_center_id, latest_item.machine_id))
+        latest_item = max(visible_order_items, key=lambda item: item.end_time)
+        latest_load = max(
+            [
+                load_by_resource[key]
+                for key in _load_lookup_key_for_item(latest_item)
+                if key in load_by_resource
+            ],
+            key=lambda row: row.utilization,
+            default=None,
+        )
         main_bottleneck = None
         if delayed and latest_load and latest_load.utilization >= 0.9:
             main_bottleneck = latest_item.operation.work_center.name
@@ -281,9 +345,19 @@ async def get_order_schedule_detail(
     items_by_part: dict[int, list[ProductionScheduleItem]] = defaultdict(list)
     for item in items:
         items_by_part[item.part_id].append(item)
+    visible_operation_ids = {
+        item.operation_id
+        for item in items
+        if not is_monitor_hidden_schedule_item(item)
+    }
 
     parts: list[OrderSchedulePart] = []
     for part_items in items_by_part.values():
+        part_items = [
+            item for item in part_items if not is_monitor_hidden_schedule_item(item)
+        ]
+        if not part_items:
+            continue
         part = part_items[0].operation.part
         part_start = min(item.start_time for item in part_items)
         part_end = max(item.end_time for item in part_items)
@@ -291,6 +365,7 @@ async def get_order_schedule_detail(
             OrderScheduleOperation(
                 operation_id=item.operation_id,
                 operation_name=item.operation.name,
+                requirement_note=item.operation.requirement_note,
                 work_center_id=item.work_center_id,
                 work_center_name=item.operation.work_center.name,
                 machine_id=item.machine_id,
@@ -298,8 +373,16 @@ async def get_order_schedule_detail(
                 planned_start_time=item.start_time,
                 planned_end_time=item.end_time,
                 duration_minutes=scheduled_work_minutes(item.start_time, item.end_time),
-                predecessor_operation_ids=sorted(predecessor_map.get(item.operation_id, [])),
-                dependency_reasons=dependency_reasons_for(item),
+                predecessor_operation_ids=sorted(
+                    predecessor_id
+                    for predecessor_id in predecessor_map.get(item.operation_id, [])
+                    if predecessor_id in visible_operation_ids
+                ),
+                dependency_reasons=[
+                    reason
+                    for reason in dependency_reasons_for(item)
+                    if reason.predecessor_operation_id in visible_operation_ids
+                ],
                 allocations=[
                     PersonnelAllocationRead(
                         id=allocation.id,
@@ -331,8 +414,11 @@ async def get_order_schedule_detail(
             )
         )
 
-    planned_start = min(item.start_time for item in items)
-    planned_end = max(item.end_time for item in items)
+    visible_items = [item for item in items if not is_monitor_hidden_schedule_item(item)]
+    if not visible_items:
+        visible_items = items
+    planned_start = min(item.start_time for item in visible_items)
+    planned_end = max(item.end_time for item in visible_items)
     parts.sort(key=lambda part: (part.planned_start_time, part.part_no))
 
     return OrderScheduleDetail(
@@ -354,6 +440,8 @@ async def get_order_schedule_detail(
                 successor_operation_id=dependency.operation_id,
             )
             for dependency in dependencies
+            if dependency.depends_on_operation_id in visible_operation_ids
+            and dependency.operation_id in visible_operation_ids
         ],
     )
 
@@ -366,7 +454,7 @@ async def get_production_scheduling_risks(
     items = await _load_schedule_items(db, schedule.id)
     load = _resource_load_rows(schedule, items)
     load_by_resource = {
-        (row.work_center_id, row.machine_id): row
+        (row.work_center_id, "external" if row.is_external else f"person:{row.person_id}"): row
         for row in load.resources
     }
     items_by_order: dict[int, list[ProductionScheduleItem]] = defaultdict(list)
@@ -375,12 +463,25 @@ async def get_production_scheduling_risks(
 
     risks: list[ScheduleRiskRow] = []
     for order_items in items_by_order.values():
-        work_order = order_items[0].operation.work_order
-        planned_end = max(item.end_time for item in order_items)
+        visible_order_items = [
+            item for item in order_items if not is_monitor_hidden_schedule_item(item)
+        ]
+        if not visible_order_items:
+            continue
+        work_order = visible_order_items[0].operation.work_order
+        planned_end = max(item.end_time for item in visible_order_items)
         if planned_end <= work_order.due_date:
             continue
-        latest_item = max(order_items, key=lambda item: item.end_time)
-        latest_load = load_by_resource.get((latest_item.work_center_id, latest_item.machine_id))
+        latest_item = max(visible_order_items, key=lambda item: item.end_time)
+        latest_load = max(
+            [
+                load_by_resource[key]
+                for key in _load_lookup_key_for_item(latest_item)
+                if key in load_by_resource
+            ],
+            key=lambda row: row.utilization,
+            default=None,
+        )
         bottleneck = latest_item.operation.work_center.name
         if latest_load and latest_load.utilization < 0.9:
             bottleneck = None
@@ -400,7 +501,7 @@ async def get_production_scheduling_risks(
                 delay_days=_delay_days(planned_end, work_order.due_date),
                 bottleneck_resource=bottleneck,
                 reason=reason,
-                suggestion="建议调整订单优先级、增加该工段班次、临时外协或检查是否存在设备空闲未利用。",
+                suggestion="建议调整订单优先级、增加该工段人员班次、临时外协或检查人员分摊是否合理。",
             )
         )
 

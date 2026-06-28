@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WorkCenterCreate(BaseModel):
@@ -11,6 +11,9 @@ class WorkCenterCreate(BaseModel):
     is_external: bool = False
     default_capacity_per_day: int = 480
     default_duration_hours: float = 8
+    external_capacity_slots: int = 1
+    external_lead_time_hours: float | None = None
+    external_vendor_name: str | None = None
     status: str = "active"
     description: str | None = None
     machine_count: int = 1
@@ -22,6 +25,9 @@ class WorkCenterUpdate(BaseModel):
     is_external: bool | None = None
     default_capacity_per_day: int | None = None
     default_duration_hours: float | None = None
+    external_capacity_slots: int | None = None
+    external_lead_time_hours: float | None = None
+    external_vendor_name: str | None = None
     status: str | None = None
     description: str | None = None
 
@@ -35,6 +41,9 @@ class WorkCenterRead(BaseModel):
     is_external: bool
     default_capacity_per_day: int
     default_duration_hours: float
+    external_capacity_slots: int = 1
+    external_lead_time_hours: float | None = None
+    external_vendor_name: str | None = None
     status: str
     description: str | None = None
     machine_count: int = 0
@@ -111,6 +120,7 @@ class ImportPartPreview(BaseModel):
     name: str
     parent_no: str | None = None
     material: str | None = None
+    note: str | None = None
     quantity: int
     source_row: int
     is_assembly: bool
@@ -126,6 +136,7 @@ class ImportOperationPreview(BaseModel):
     work_center_name: str
     seq_no: int
     duration_hours: float
+    requirement_note: str | None = None
     source_row: int
     source_col: int
     is_external: bool = False
@@ -145,6 +156,7 @@ class ImportCommitRequest(BaseModel):
     order: WorkOrderCreate
     preview: ImportPreviewPayload
     create_missing_work_centers: bool = True
+    mapping_overrides: dict[str, int] = Field(default_factory=dict)
 
 
 class ImportCommitResponse(BaseModel):
@@ -167,6 +179,7 @@ class ProductionOperationRead(BaseModel):
     name: str
     seq_no: int
     duration_hours: float
+    requirement_note: str | None = None
     part_quantity: int = 1
     effective_duration_hours: float
     status: str
@@ -217,32 +230,6 @@ class OrderLockRequest(BaseModel):
     note: str | None = None
 
 
-class ProductionScheduleItemRead(BaseModel):
-    id: int
-    schedule_id: int
-    operation_id: int
-    work_order_id: int
-    part_id: int
-    work_center_id: int
-    machine_id: int | None = None
-    start_time: datetime
-    end_time: datetime
-    sequence_on_resource: int
-    is_external: bool
-    locked: bool = False
-    scheduled_duration_hours: float
-    order_no: str
-    customer: str
-    due_date: datetime
-    part_no: str
-    drawing_no: str
-    part_name: str
-    operation_name: str
-    work_center_name: str
-    machine_name: str | None = None
-    machine_code: str | None = None
-
-
 class PersonnelOption(BaseModel):
     id: int
     employee_no: str
@@ -265,6 +252,39 @@ class PersonnelAllocationRead(BaseModel):
     planned_minutes: int
 
 
+class ProductionScheduleItemRead(BaseModel):
+    id: int
+    schedule_id: int
+    operation_id: int
+    work_order_id: int
+    part_id: int
+    work_center_id: int
+    machine_id: int | None = None
+    start_time: datetime
+    end_time: datetime
+    sequence_on_resource: int
+    is_external: bool
+    external_status: str = "pending"
+    external_sent_at: datetime | None = None
+    external_returned_at: datetime | None = None
+    external_expected_return_at: datetime | None = None
+    external_note: str | None = None
+    requirement_note: str | None = None
+    locked: bool = False
+    scheduled_duration_hours: float
+    order_no: str
+    customer: str
+    due_date: datetime
+    part_no: str
+    drawing_no: str
+    part_name: str
+    operation_name: str
+    work_center_name: str
+    machine_name: str | None = None
+    machine_code: str | None = None
+    allocations: list[PersonnelAllocationRead] = []
+
+
 class DispatchTaskRow(BaseModel):
     schedule_item_id: int
     operation_id: int
@@ -277,6 +297,7 @@ class DispatchTaskRow(BaseModel):
     part_no: str
     part_name: str
     operation_name: str
+    requirement_note: str | None = None
     work_center_name: str
     machine_name: str | None = None
     is_external: bool
@@ -293,6 +314,114 @@ class DispatchResponse(BaseModel):
     schedule: ProductionScheduleRead
     personnel: list[PersonnelOption]
     tasks: list[DispatchTaskRow]
+
+
+class WorkOrderTicketAllocation(BaseModel):
+    person_id: int
+    employee_no: str
+    person_name: str
+    ratio_percent: float
+    planned_minutes: int
+
+
+class WorkOrderTicketRow(BaseModel):
+    schedule_item_id: int
+    work_order_id: int
+    work_center_id: int
+    order_no: str
+    customer: str
+    drawing_no: str
+    part_no: str
+    part_name: str
+    operation_name: str
+    requirement_note: str | None = None
+    work_center_name: str
+    machine_name: str | None = None
+    planned_start: datetime
+    planned_end: datetime
+    planned_minutes: int
+    allocation_status: str
+    ticket_status: str
+    allocations: list[WorkOrderTicketAllocation] = []
+
+
+class WorkOrderTicketResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    tasks: list[WorkOrderTicketRow]
+
+
+class PersonnelAllocationSaveResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    task: DispatchTaskRow
+    allocations: list[PersonnelAllocationRead]
+
+
+class PersonnelBatchAllocationRequest(BaseModel):
+    schedule_item_ids: list[int]
+    allocations: list[PersonnelAllocationWrite]
+    overwrite_assigned: bool = False
+
+
+class PersonnelBatchAllocationSkippedItem(BaseModel):
+    schedule_item_id: int
+    order_no: str | None = None
+    operation_name: str | None = None
+    reason: str
+
+
+class PersonnelBatchAllocationResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    processed_count: int
+    skipped_count: int
+    skipped_items: list[PersonnelBatchAllocationSkippedItem] = []
+
+
+class DispatchAutoAssignRequest(BaseModel):
+    work_order_id: int | None = None
+    work_center_id: int | None = None
+    person_id: int | None = None
+    allocation_status: str | None = None
+    query: str | None = None
+
+
+class DispatchAutoAssignAllocation(BaseModel):
+    person_id: int
+    employee_no: str
+    person_name: str
+    ratio_percent: float
+    planned_minutes: int
+    cross_work_center: bool = False
+    existing: bool = False
+
+
+class DispatchAutoAssignTaskPreview(BaseModel):
+    schedule_item_id: int
+    order_no: str
+    drawing_no: str
+    part_no: str
+    part_name: str
+    operation_name: str
+    work_center_name: str
+    planned_minutes: int
+    allocation_status: str
+    allocations: list[DispatchAutoAssignAllocation] = []
+    skipped: bool = False
+    skip_reason: str | None = None
+    multi_person: bool = False
+    cross_work_center: bool = False
+
+
+class DispatchAutoAssignSummary(BaseModel):
+    processable_count: int
+    skipped_count: int
+    multi_person_count: int
+    cross_work_center_count: int
+
+
+class DispatchAutoAssignResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    summary: DispatchAutoAssignSummary
+    tasks: list[DispatchAutoAssignTaskPreview]
 
 
 class PersonnelWorkloadTask(BaseModel):
@@ -341,16 +470,65 @@ class ResourceLoadRow(BaseModel):
     work_center_name: str
     machine_id: int | None = None
     machine_name: str
+    person_id: int | None = None
+    person_name: str | None = None
     busy_minutes: int
     available_minutes: int
     utilization: float
     status: str
     is_external: bool = False
+    external_capacity_slots: int = 1
+    task_count: int = 0
+    latest_finish_time: datetime | None = None
 
 
 class ResourceLoadResponse(BaseModel):
     schedule: ProductionScheduleRead
     resources: list[ResourceLoadRow]
+
+
+class ExternalTaskRow(BaseModel):
+    schedule_item_id: int
+    schedule_id: int
+    operation_id: int
+    work_order_id: int
+    work_center_id: int
+    order_no: str
+    customer: str
+    drawing_no: str
+    part_no: str
+    part_name: str
+    operation_name: str
+    requirement_note: str | None = None
+    work_center_name: str
+    vendor_name: str | None = None
+    external_capacity_slots: int = 1
+    planned_send_at: datetime
+    expected_return_at: datetime
+    planned_duration_hours: float
+    external_status: str
+    external_sent_at: datetime | None = None
+    external_returned_at: datetime | None = None
+    external_note: str | None = None
+
+
+class ExternalTaskListResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    tasks: list[ExternalTaskRow]
+
+
+class ExternalTaskUpdate(BaseModel):
+    external_status: str | None = None
+    external_sent_at: datetime | None = None
+    external_returned_at: datetime | None = None
+    external_expected_return_at: datetime | None = None
+    external_note: str | None = None
+
+
+class ExternalTaskUpdateResponse(BaseModel):
+    schedule: ProductionScheduleRead
+    task: ExternalTaskRow
+    recalculated_item_count: int = 0
 
 
 class ProductionOrderOverviewRow(BaseModel):
@@ -390,6 +568,7 @@ class OrderScheduleDependencyReason(BaseModel):
 class OrderScheduleOperation(BaseModel):
     operation_id: int
     operation_name: str
+    requirement_note: str | None = None
     work_center_id: int
     work_center_name: str
     machine_id: int | None = None
@@ -561,6 +740,7 @@ class ScheduleBoardRow(BaseModel):
     part_no: str
     part_name: str
     customer_name: str
+    requirement_note: str | None = None
     quantity: int
     duration_hours: float
     due_date: datetime
@@ -588,6 +768,15 @@ class GanttResourceLane(BaseModel):
     machine_code: str | None = None
     is_external: bool = False
     tasks: list[dict]
+
+
+class ProductionOperationRequirementUpdate(BaseModel):
+    requirement_note: str | None = None
+
+
+class ProductionOperationRequirementRead(BaseModel):
+    operation_id: int
+    requirement_note: str | None = None
 
 
 class ResourceMachineCreate(BaseModel):

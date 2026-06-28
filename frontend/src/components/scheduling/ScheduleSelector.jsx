@@ -13,7 +13,7 @@ export default function ScheduleSelector({
   return (
     <div className="panel-actions">
       <label className="field-label compact-field">
-        排产方案
+        当前排产
         <select className="field-input" value={selectedScheduleId} onChange={onScheduleChange}>
           {schedules.map((schedule) => (
             <option key={schedule.id} value={schedule.id}>

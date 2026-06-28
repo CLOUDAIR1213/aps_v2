@@ -35,22 +35,34 @@ const navSections = [
         code: "05"
       },
       {
+        to: "/work-order-tickets",
+        label: "加工单中心",
+        hint: "导出车间执行单据",
+        code: "06"
+      },
+      {
+        to: "/external-tasks",
+        label: "外协管理",
+        hint: "送出、返回和异常",
+        code: "07"
+      },
+      {
         to: "/scheduling/board",
         label: "生产排班表",
         hint: "按日期复核任务排布",
-        code: "06"
+        code: "08"
       },
       {
         to: "/gantt",
         label: "甘特图",
         hint: "设备和外协时间轴",
-        code: "07"
+        code: "09"
       },
       {
         to: "/setup",
         label: "基础配置",
         hint: "工段、设备、人员、映射",
-        code: "08"
+        code: "10"
       }
     ]
   },
@@ -61,7 +73,7 @@ const navSections = [
         to: "/management-dashboard",
         label: "交付风险看板",
         hint: "老板查看交期风险",
-        code: "09"
+        code: "11"
       }
     ]
   }
@@ -128,6 +140,18 @@ const pageMeta = {
     description: "按排产明细分配执行人员，占比合计 100% 后形成计划工时快照。",
     focus: "未派工任务"
   },
+  "/work-order-tickets": {
+    eyebrow: "加工单中心",
+    title: "加工单中心",
+    description: "从已完整派工的内部任务生成车间执行加工单，导出时记录筛选范围和任务清单。",
+    focus: "执行单据"
+  },
+  "/external-tasks": {
+    eyebrow: "外协管理",
+    title: "外协管理",
+    description: "维护外协任务的送出、预计返回、实际返回和异常状态，返回时间会参与后续排产重算。",
+    focus: "外协队列"
+  },
   "/scheduling/orders": {
     eyebrow: "订单完工表",
     title: "订单排产详情",
@@ -190,6 +214,14 @@ const pageActions = {
   ],
   "/dispatch": [
     { to: "/schedule-results", label: "订单完工表", variant: "ghost" },
+    { to: "/work-order-tickets", label: "加工单中心" }
+  ],
+  "/work-order-tickets": [
+    { to: "/dispatch", label: "派工与工时", variant: "ghost" },
+    { to: "/external-tasks", label: "外协管理" }
+  ],
+  "/external-tasks": [
+    { to: "/work-order-tickets", label: "加工单中心", variant: "ghost" },
     { to: "/scheduling/board", label: "生产排班表" }
   ],
   "/scheduling/orders": [
@@ -221,9 +253,11 @@ const workflowByPath = {
   "/scheduling": 2,
   "/schedule-results": 3,
   "/dispatch": 4,
+  "/work-order-tickets": 5,
+  "/external-tasks": 5,
+  "/scheduling/board": 5,
   "/gantt": 5,
-  "/management-dashboard": 5,
-  "/scheduling/board": 5
+  "/management-dashboard": 5
 };
 
 export const workflowSteps = ["基础配置", "工单导入", "排产", "完工表", "派工", "复核"];
@@ -276,7 +310,7 @@ export function getActiveNavPath(pathname) {
 }
 
 export function getNavigationTarget(path) {
-  if (path === "/schedule-results" || path === "/dispatch" || path === "/gantt" || path === "/management-dashboard") {
+  if (path === "/schedule-results" || path === "/dispatch" || path === "/work-order-tickets" || path === "/external-tasks" || path === "/gantt" || path === "/management-dashboard") {
     return buildSchedulePath(path);
   }
   if (path === "/scheduling/board") {

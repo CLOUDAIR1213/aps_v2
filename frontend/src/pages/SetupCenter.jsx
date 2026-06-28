@@ -10,8 +10,8 @@ import {
   getWorkCenters,
   getWorkOrders
 } from "../api/production";
+import CompactSummaryStrip from "../components/common/CompactSummaryStrip";
 import StatusBadge from "../components/StatusBadge";
-import SummaryCards from "../components/SummaryCards";
 import { formatHours } from "../utils/formatters";
 
 const STATUS_TEXT = {
@@ -210,9 +210,9 @@ export default function SetupCenter() {
   return (
     <section className="page-grid setup-center">
       {error ? <div className="alert danger">{error}</div> : null}
-      <SummaryCards cards={cards} loading={loading} />
+      <CompactSummaryStrip className="setup-summary-strip" items={cards} loading={loading} />
 
-      <div className="panel">
+      <div className="panel compact-page-panel">
         <div className="panel-header">
           <div>
             <h3 className="panel-title">六步配置进度</h3>

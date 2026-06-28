@@ -29,6 +29,7 @@ from app.services.production_analysis_service import (
     _resolve_schedule,
     _resource_load_rows,
 )
+from app.services.production_service import is_monitor_hidden_schedule_item
 
 
 VALID_ISSUE_STATUSES = {"open", "processing", "resolved", "paused"}
@@ -162,14 +163,19 @@ def _build_order_issues(
         items_by_order[item.work_order_id].append(item)
 
     for order_items in items_by_order.values():
-        work_order = order_items[0].operation.work_order
+        visible_order_items = [
+            item for item in order_items if not is_monitor_hidden_schedule_item(item)
+        ]
+        if not visible_order_items:
+            continue
+        work_order = visible_order_items[0].operation.work_order
         if work_order.due_date.date() > horizon_end:
             continue
 
-        planned_start = min(item.start_time for item in order_items)
-        planned_end = max(item.end_time for item in order_items)
+        planned_start = min(item.start_time for item in visible_order_items)
+        planned_end = max(item.end_time for item in visible_order_items)
         delay_days = _delay_days(planned_end, work_order.due_date)
-        latest_item = max(order_items, key=lambda item: item.end_time)
+        latest_item = max(visible_order_items, key=lambda item: item.end_time)
         due_margin_days = (work_order.due_date.date() - planned_end.date()).days
         due_in_days = (work_order.due_date.date() - today).days
 
@@ -230,8 +236,11 @@ def _build_order_issues(
         critical_items = [
             item
             for item in order_items
-            if item.end_time > work_order.due_date
-            or (item.end_time.date() >= work_order.due_date.date() - timedelta(days=1))
+            if not is_monitor_hidden_schedule_item(item)
+            and (
+                item.end_time > work_order.due_date
+                or item.end_time.date() >= work_order.due_date.date() - timedelta(days=1)
+            )
         ]
         for item in critical_items[:3]:
             if item.is_external:

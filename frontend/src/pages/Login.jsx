@@ -42,6 +42,7 @@ export default function Login({ onLogin }) {
           账号
           <input
             className="field-input"
+            required
             value={form.username}
             onChange={(event) => setForm({ ...form, username: event.target.value })}
           />
@@ -50,6 +51,7 @@ export default function Login({ onLogin }) {
           密码
           <input
             className="field-input"
+            required
             type="password"
             value={form.password}
             onChange={(event) => setForm({ ...form, password: event.target.value })}

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.production import (
+    BusinessRiskIssueState,
     ExportBatch,
     ImportBatch,
     OperationDependency,
@@ -34,13 +35,26 @@ from app.models.production import (
     WorkOrder,
 )
 from app.schemas.production import (
+    DispatchAutoAssignAllocation,
+    DispatchAutoAssignRequest,
+    DispatchAutoAssignResponse,
+    DispatchAutoAssignSummary,
+    DispatchAutoAssignTaskPreview,
     DispatchResponse,
     DispatchTaskRow,
+    ExternalTaskListResponse,
+    ExternalTaskRow,
+    ExternalTaskUpdate,
+    ExternalTaskUpdateResponse,
     ImportCommitRequest,
     ImportCommitResponse,
     ImportIssue,
     OperationMappingRuleRead,
     PersonnelAllocationRead,
+    PersonnelBatchAllocationRequest,
+    PersonnelBatchAllocationResponse,
+    PersonnelBatchAllocationSkippedItem,
+    PersonnelAllocationSaveResponse,
     PersonnelAllocationWrite,
     PersonnelImportResponse,
     PersonnelOption,
@@ -58,6 +72,10 @@ from app.schemas.production import (
     ScheduleBoardRow,
     WorkCenterCreate,
     WorkCenterRead,
+    WorkCenterUpdate,
+    WorkOrderTicketAllocation,
+    WorkOrderTicketResponse,
+    WorkOrderTicketRow,
 )
 from app.services.production_import_service import get_parent_no
 
@@ -68,6 +86,25 @@ LUNCH_END = time(13, 0)
 WORK_END = time(17, 0)
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 PERSONNEL_SHEET_CANDIDATES = ("机台人员", "机组人员")
+MONITOR_HIDDEN_WORK_CENTERS = {"下料"}
+
+
+def _is_monitor_hidden_names(*names: str | None) -> bool:
+    names = {(name or "").strip() for name in names}
+    return bool(names & MONITOR_HIDDEN_WORK_CENTERS)
+
+
+def is_monitor_hidden_schedule_item(item: ProductionScheduleItem) -> bool:
+    operation = item.operation
+    center = operation.work_center if operation else None
+    return _is_monitor_hidden_names(
+        operation.name if operation else None,
+        center.name if center else None,
+    )
+
+
+def is_monitor_hidden_operation(operation: ProductionOperation) -> bool:
+    return _is_monitor_hidden_names(operation.name, operation.work_center.name)
 
 
 def normalize_schedule_datetime(value: datetime) -> datetime:
@@ -179,6 +216,9 @@ async def list_work_centers(db: AsyncSession) -> list[WorkCenterRead]:
             is_external=center.is_external,
             default_capacity_per_day=center.default_capacity_per_day,
             default_duration_hours=center.default_duration_hours,
+            external_capacity_slots=center.external_capacity_slots,
+            external_lead_time_hours=center.external_lead_time_hours,
+            external_vendor_name=center.external_vendor_name,
             status=center.status,
             description=center.description,
             machine_count=len(center.machines),
@@ -351,6 +391,7 @@ async def ensure_work_center(
         is_external=is_external,
         default_capacity_per_day=480,
         default_duration_hours=8,
+        external_capacity_slots=1,
     )
     db.add(center)
     await db.commit()
@@ -376,6 +417,9 @@ async def create_work_center(db: AsyncSession, payload: WorkCenterCreate) -> Wor
         is_external=payload.is_external,
         default_capacity_per_day=payload.default_capacity_per_day,
         default_duration_hours=payload.default_duration_hours,
+        external_capacity_slots=max(payload.external_capacity_slots, 1),
+        external_lead_time_hours=payload.external_lead_time_hours,
+        external_vendor_name=payload.external_vendor_name,
         status=payload.status,
         description=payload.description,
     )
@@ -403,6 +447,9 @@ async def create_work_center(db: AsyncSession, payload: WorkCenterCreate) -> Wor
         is_external=center.is_external,
         default_capacity_per_day=center.default_capacity_per_day,
         default_duration_hours=center.default_duration_hours,
+        external_capacity_slots=center.external_capacity_slots,
+        external_lead_time_hours=center.external_lead_time_hours,
+        external_vendor_name=center.external_vendor_name,
         status=center.status,
         description=center.description,
         machine_count=len(center.machines),
@@ -411,7 +458,7 @@ async def create_work_center(db: AsyncSession, payload: WorkCenterCreate) -> Wor
     )
 
 
-async def update_work_center(db: AsyncSession, work_center_id: int, payload) -> WorkCenterRead:
+async def update_work_center(db: AsyncSession, work_center_id: int, payload: WorkCenterUpdate) -> WorkCenterRead:
     center = await db.get(WorkCenter, work_center_id)
     if not center:
         raise ValueError("工段不存在。")
@@ -429,6 +476,8 @@ async def update_work_center(db: AsyncSession, work_center_id: int, payload) -> 
             )
             if existing.scalars().first():
                 raise ValueError(f"工段名称 {value} 已存在。")
+        if field == "external_capacity_slots":
+            value = max(int(value or 1), 1)
         setattr(center, field, value)
     await db.commit()
     await db.refresh(center)
@@ -439,6 +488,9 @@ async def update_work_center(db: AsyncSession, work_center_id: int, payload) -> 
         is_external=center.is_external,
         default_capacity_per_day=center.default_capacity_per_day,
         default_duration_hours=center.default_duration_hours,
+        external_capacity_slots=center.external_capacity_slots,
+        external_lead_time_hours=center.external_lead_time_hours,
+        external_vendor_name=center.external_vendor_name,
         status=center.status,
         description=center.description,
         machine_count=len(center.machines) if center.machines else 0,
@@ -461,6 +513,9 @@ async def disable_work_center(db: AsyncSession, work_center_id: int) -> WorkCent
         is_external=center.is_external,
         default_capacity_per_day=center.default_capacity_per_day,
         default_duration_hours=center.default_duration_hours,
+        external_capacity_slots=center.external_capacity_slots,
+        external_lead_time_hours=center.external_lead_time_hours,
+        external_vendor_name=center.external_vendor_name,
         status=center.status,
         description=center.description,
         machine_count=len(center.machines),
@@ -768,6 +823,12 @@ def _is_missing_mapping_issue(issue: ImportIssue) -> bool:
     )
 
 
+def _is_mapping_issue_covered(issue: ImportIssue, mapping_overrides: dict[str, int]) -> bool:
+    return _is_missing_mapping_issue(issue) and any(
+        source_name and source_name in issue.message for source_name in mapping_overrides
+    )
+
+
 def _format_import_issue(issue: ImportIssue) -> str:
     location = ""
     if issue.row:
@@ -858,8 +919,12 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
         for issue in request.preview.issues
         if (
             issue.severity == "error"
-            and not (request.create_missing_work_centers and _is_missing_mapping_issue(issue))
+            and not (
+                (request.create_missing_work_centers and _is_missing_mapping_issue(issue))
+                or _is_mapping_issue_covered(issue, request.mapping_overrides)
+            )
         )
+        or issue.field == "external_default_duration"
     ]
     if blocking_issues:
         issue_text = "；".join(_format_import_issue(issue) for issue in blocking_issues[:5])
@@ -878,6 +943,42 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
         .options(selectinload(OperationMappingRule.work_center))
     )
     rule_map = {rule.source_name: rule for rule in rules_result.scalars().all()}
+
+    # User overrides bind an original Excel operation column to an existing work center.
+    for source_name, work_center_id in request.mapping_overrides.items():
+        center = await db.get(WorkCenter, work_center_id)
+        if center is None:
+            raise ValueError(f"映射覆盖的工段不存在：{source_name} -> {work_center_id}。")
+        if center.status != "active":
+            raise ValueError(f"映射覆盖的工段已禁用：{source_name} -> {center.name}。")
+
+        existing_rule_result = await db.execute(
+            select(OperationMappingRule)
+            .where(OperationMappingRule.source_name == source_name)
+            .options(selectinload(OperationMappingRule.work_center))
+        )
+        existing_rule = existing_rule_result.scalars().first()
+        is_external = center.is_external
+        if existing_rule:
+            existing_rule.work_center_id = center.id
+            existing_rule.normalized_name = center.name
+            existing_rule.is_external = is_external
+            existing_rule.status = "active"
+            existing_rule.work_center = center
+            rule_map[source_name] = existing_rule
+        else:
+            rule = OperationMappingRule(
+                source_name=source_name,
+                normalized_name=center.name,
+                work_center_id=center.id,
+                is_external=is_external,
+                status="active",
+            )
+            rule.work_center = center
+            db.add(rule)
+            rule_map[source_name] = rule
+    if request.mapping_overrides:
+        await db.commit()
 
     # Validate all operations have mapping rules, or create missing rules when the user chose it.
     unmapped = {op.work_center_name for op in request.preview.operations if op.work_center_name not in rule_map}
@@ -947,6 +1048,7 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
             drawing_no=item.drawing_no,
             name=item.name,
             material=item.material,
+            note=item.note,
             quantity=item.quantity,
             source_row=item.source_row,
             is_assembly=item.is_assembly,
@@ -976,6 +1078,7 @@ async def commit_import(db: AsyncSession, request: ImportCommitRequest) -> Impor
             name=item.work_center_name,
             seq_no=item.seq_no,
             duration_hours=item.duration_hours,
+            requirement_note=item.requirement_note,
             source_row=item.source_row,
             source_col=item.source_col,
         )
@@ -1048,6 +1151,22 @@ async def delete_work_order(db: AsyncSession, work_order_id: int) -> None:
     await db.execute(sqla_delete(ImportBatch).where(ImportBatch.work_order_id == work_order_id))
     await db.execute(sqla_delete(WorkOrder).where(WorkOrder.id == work_order_id))
     await db.commit()
+
+
+async def update_operation_requirement_note(
+    db: AsyncSession,
+    operation_id: int,
+    requirement_note: str | None,
+) -> ProductionOperation:
+    operation = await db.get(ProductionOperation, operation_id)
+    if operation is None:
+        raise ValueError("工序不存在。")
+
+    normalized_note = requirement_note.strip() if isinstance(requirement_note, str) else requirement_note
+    operation.requirement_note = normalized_note or None
+    await db.commit()
+    await db.refresh(operation)
+    return operation
 
 
 async def list_personnel(db: AsyncSession) -> list[dict]:
@@ -1146,6 +1265,7 @@ def _dispatch_row(item: ProductionScheduleItem) -> DispatchTaskRow:
         part_no=part.no,
         part_name=part.name,
         operation_name=operation.name,
+        requirement_note=operation.requirement_note,
         work_center_name=center.name,
         machine_name=item.machine.name if item.machine else None,
         is_external=item.is_external,
@@ -1157,6 +1277,114 @@ def _dispatch_row(item: ProductionScheduleItem) -> DispatchTaskRow:
         allocation_status=allocation_status,
         allocations=serialized_allocations,
     )
+
+
+def _work_order_ticket_row(item: ProductionScheduleItem) -> WorkOrderTicketRow:
+    operation = item.operation
+    work_order = operation.work_order
+    part = operation.part
+    center = operation.work_center
+    planned_minutes = scheduled_work_minutes(item.start_time, item.end_time)
+    allocations = sorted(item.personnel_allocations, key=lambda row: (row.person.name, row.person_id))
+    serialized_allocations = [
+        WorkOrderTicketAllocation(
+            person_id=allocation.person_id,
+            employee_no=allocation.person.employee_no,
+            person_name=allocation.person.name,
+            ratio_percent=allocation.ratio_percent,
+            planned_minutes=allocation.planned_minutes,
+        )
+        for allocation in allocations
+    ]
+    if not serialized_allocations:
+        allocation_status = "unassigned"
+        ticket_status = "pending_dispatch"
+    elif abs(sum(allocation.ratio_percent for allocation in serialized_allocations) - 100) <= 0.001:
+        allocation_status = "assigned"
+        ticket_status = "ready_to_export"
+    else:
+        allocation_status = "partial"
+        ticket_status = "needs_completion"
+
+    return WorkOrderTicketRow(
+        schedule_item_id=item.id,
+        work_order_id=item.work_order_id,
+        work_center_id=item.work_center_id,
+        order_no=work_order.order_no,
+        customer=work_order.customer,
+        drawing_no=part.drawing_no,
+        part_no=part.no,
+        part_name=part.name,
+        operation_name=operation.name,
+        requirement_note=operation.requirement_note,
+        work_center_name=center.name,
+        machine_name=item.machine.name if item.machine else None,
+        planned_start=item.start_time,
+        planned_end=item.end_time,
+        planned_minutes=planned_minutes,
+        allocation_status=allocation_status,
+        ticket_status=ticket_status,
+        allocations=serialized_allocations,
+    )
+
+
+async def list_work_order_tickets(
+    db: AsyncSession,
+    schedule_id: int,
+    work_order_id: int | None = None,
+    work_center_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    ticket_status: str | None = None,
+) -> WorkOrderTicketResponse:
+    schedule = await db.get(ProductionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("排产方案不存在。")
+
+    query = (
+        select(ProductionScheduleItem)
+        .where(
+            ProductionScheduleItem.schedule_id == schedule_id,
+            ProductionScheduleItem.is_external == False,
+        )
+        .options(
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.machine),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
+        )
+        .order_by(
+            ProductionScheduleItem.start_time,
+            ProductionScheduleItem.work_center_id,
+            ProductionScheduleItem.sequence_on_resource,
+            ProductionScheduleItem.id,
+        )
+    )
+    if work_order_id is not None:
+        query = query.where(ProductionScheduleItem.work_order_id == work_order_id)
+    if work_center_id is not None:
+        query = query.where(ProductionScheduleItem.work_center_id == work_center_id)
+    if date_from is not None:
+        query = query.where(ProductionScheduleItem.start_time >= datetime.combine(date_from, time.min))
+    if date_to is not None:
+        query = query.where(ProductionScheduleItem.start_time < datetime.combine(date_to + timedelta(days=1), time.min))
+
+    result = await db.execute(query)
+    rows = [
+        _work_order_ticket_row(item)
+        for item in result.scalars().all()
+        if not is_monitor_hidden_schedule_item(item)
+    ]
+
+    if ticket_status:
+        if ticket_status not in {"pending_dispatch", "needs_completion", "ready_to_export"}:
+            raise ValueError("ticket_status must be pending_dispatch, needs_completion or ready_to_export.")
+        rows = [row for row in rows if row.ticket_status == ticket_status]
+
+    return WorkOrderTicketResponse(schedule=schedule, tasks=rows)
 
 
 async def get_dispatch_data(
@@ -1173,7 +1401,10 @@ async def get_dispatch_data(
 
     query = (
         select(ProductionScheduleItem)
-        .where(ProductionScheduleItem.schedule_id == schedule_id)
+        .where(
+            ProductionScheduleItem.schedule_id == schedule_id,
+            ProductionScheduleItem.is_external == False,
+        )
         .options(
             selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
             selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
@@ -1196,7 +1427,11 @@ async def get_dispatch_data(
         query = query.where(ProductionScheduleItem.work_center_id == work_center_id)
 
     result = await db.execute(query)
-    rows = [_dispatch_row(item) for item in result.scalars().all()]
+    rows = [
+        _dispatch_row(item)
+        for item in result.scalars().all()
+        if not is_monitor_hidden_schedule_item(item)
+    ]
 
     if person_id is not None:
         rows = [
@@ -1219,15 +1454,447 @@ async def get_dispatch_data(
     return DispatchResponse(schedule=schedule, personnel=people, tasks=rows)
 
 
+def _allocation_status_for_item(item: ProductionScheduleItem) -> str:
+    allocations = item.personnel_allocations or []
+    if not allocations:
+        return "unassigned"
+    if abs(sum(allocation.ratio_percent for allocation in allocations) - 100) <= 0.001:
+        return "assigned"
+    return "partial"
+
+
+def _auto_assign_ratio_split(total_ratio: float, count: int) -> list[float]:
+    if count <= 1:
+        return [round(total_ratio, 2)]
+    base = round(total_ratio / count, 2)
+    ratios = [base for _ in range(count - 1)]
+    ratios.append(round(total_ratio - sum(ratios), 2))
+    return ratios
+
+
+def _auto_assign_summary(tasks: list[DispatchAutoAssignTaskPreview]) -> DispatchAutoAssignSummary:
+    processable = [task for task in tasks if not task.skipped]
+    return DispatchAutoAssignSummary(
+        processable_count=len(processable),
+        skipped_count=len(tasks) - len(processable),
+        multi_person_count=sum(1 for task in processable if task.multi_person),
+        cross_work_center_count=sum(1 for task in processable if task.cross_work_center),
+    )
+
+
+async def _build_auto_assign_preview(
+    db: AsyncSession,
+    schedule_id: int,
+    request: DispatchAutoAssignRequest,
+) -> DispatchAutoAssignResponse:
+    schedule = await db.get(ProductionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("排产方案不存在。")
+
+    query = (
+        select(ProductionScheduleItem)
+        .where(
+            ProductionScheduleItem.schedule_id == schedule_id,
+            ProductionScheduleItem.is_external == False,
+        )
+        .options(
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
+        )
+        .order_by(ProductionScheduleItem.start_time, ProductionScheduleItem.id)
+    )
+    if request.work_order_id is not None:
+        query = query.where(ProductionScheduleItem.work_order_id == request.work_order_id)
+    if request.work_center_id is not None:
+        query = query.where(ProductionScheduleItem.work_center_id == request.work_center_id)
+
+    result = await db.execute(query)
+    items = [
+        item
+        for item in result.scalars().all()
+        if not is_monitor_hidden_schedule_item(item)
+    ]
+
+    if request.person_id is not None:
+        items = [
+            item
+            for item in items
+            if any(allocation.person_id == request.person_id for allocation in item.personnel_allocations)
+        ]
+
+    allowed_statuses = {"unassigned", "partial"}
+    if request.allocation_status:
+        if request.allocation_status not in {"assigned", "unassigned", "partial"}:
+            raise ValueError("allocation_status must be assigned, unassigned or partial.")
+        allowed_statuses &= {request.allocation_status}
+
+    normalized_query = (request.query or "").strip().lower()
+    if normalized_query:
+        items = [
+            item
+            for item in items
+            if any(
+                normalized_query in str(value).lower()
+                for value in [
+                    item.operation.work_order.order_no,
+                    item.operation.work_order.customer,
+                    item.operation.part.drawing_no,
+                    item.operation.part.no,
+                    item.operation.part.name,
+                    item.operation.name,
+                    item.operation.work_center.name,
+                    " / ".join(
+                        f"{allocation.person.name} {allocation.ratio_percent}%"
+                        for allocation in item.personnel_allocations
+                    ),
+                ]
+                if value
+            )
+        ]
+
+    active_people_result = await db.execute(
+        select(Personnel)
+        .where(Personnel.status == "active")
+        .options(selectinload(Personnel.work_centers))
+        .order_by(Personnel.name, Personnel.id)
+    )
+    active_people = list(active_people_result.scalars().all())
+    person_center_ids = {
+        person.id: {link.work_center_id for link in person.work_centers}
+        for person in active_people
+    }
+
+    center_links = await _active_personnel_by_work_center(
+        db,
+        {item.work_center_id for item in items},
+    )
+
+    workload_result = await db.execute(
+        select(
+            ProductionScheduleItemPersonnelAllocation.person_id,
+            ProductionScheduleItemPersonnelAllocation.planned_minutes,
+        )
+        .join(
+            ProductionScheduleItem,
+            ProductionScheduleItem.id == ProductionScheduleItemPersonnelAllocation.schedule_item_id,
+        )
+        .where(ProductionScheduleItem.schedule_id == schedule_id)
+    )
+    workload_minutes: dict[int, int] = defaultdict(int)
+    for person_id, planned_minutes in workload_result.all():
+        workload_minutes[person_id] += planned_minutes
+
+    def choose_people(center_id: int, count: int, excluded_ids: set[int]) -> tuple[list[Personnel], bool]:
+        center_people = [
+            link.person
+            for link in center_links.get(center_id, [])
+            if link.person_id not in excluded_ids
+        ]
+        source = center_people
+        cross_work_center = False
+        if not source:
+            source = [person for person in active_people if person.id not in excluded_ids]
+            cross_work_center = True
+        source = sorted(source, key=lambda person: (workload_minutes.get(person.id, 0), person.name, person.id))
+        return source[:count], cross_work_center
+
+    previews: list[DispatchAutoAssignTaskPreview] = []
+    for item in items:
+        status = _allocation_status_for_item(item)
+        if status not in allowed_statuses:
+            continue
+
+        operation = item.operation
+        center = operation.work_center
+        existing_allocations = sorted(item.personnel_allocations, key=lambda row: (row.person.name, row.person_id))
+        planned_minutes = _operation_person_minutes(operation)
+        existing_ratio = sum(allocation.ratio_percent for allocation in existing_allocations)
+
+        base_preview = {
+            "schedule_item_id": item.id,
+            "order_no": operation.work_order.order_no,
+            "drawing_no": operation.part.drawing_no,
+            "part_no": operation.part.no,
+            "part_name": operation.part.name,
+            "operation_name": operation.name,
+            "work_center_name": center.name,
+            "planned_minutes": planned_minutes,
+            "allocation_status": status,
+        }
+
+        if any(
+            allocation.ratio_percent <= 0 or allocation.ratio_percent > 100
+            for allocation in existing_allocations
+        ) or existing_ratio > 100:
+            previews.append(
+                DispatchAutoAssignTaskPreview(
+                    **base_preview,
+                    skipped=True,
+                    skip_reason="已有分摊占比无效，请先手工调整。",
+                )
+            )
+            continue
+
+        remaining_ratio = round(100 - existing_ratio, 6)
+        if remaining_ratio <= 0:
+            previews.append(
+                DispatchAutoAssignTaskPreview(
+                    **base_preview,
+                    skipped=True,
+                    skip_reason="当前任务已无需补充分摊。",
+                )
+            )
+            continue
+
+        existing_person_ids = {allocation.person_id for allocation in existing_allocations}
+        desired_total_people = 2 if planned_minutes > 480 else 1
+        add_count = max(desired_total_people - len(existing_allocations), 1)
+        selected_people, cross_fallback = choose_people(center.id, add_count, existing_person_ids)
+        if not selected_people:
+            previews.append(
+                DispatchAutoAssignTaskPreview(
+                    **base_preview,
+                    skipped=True,
+                    skip_reason="没有可用在职人员。",
+                )
+            )
+            continue
+
+        ratios = _auto_assign_ratio_split(remaining_ratio, len(selected_people))
+        final_ratios = [allocation.ratio_percent for allocation in existing_allocations] + ratios
+        final_minutes = _allocation_minutes_for_operation(operation, final_ratios)
+        preview_allocations: list[DispatchAutoAssignAllocation] = []
+
+        for allocation, minutes in zip(existing_allocations, final_minutes[:len(existing_allocations)]):
+            preview_allocations.append(
+                DispatchAutoAssignAllocation(
+                    person_id=allocation.person_id,
+                    employee_no=allocation.person.employee_no,
+                    person_name=allocation.person.name,
+                    ratio_percent=allocation.ratio_percent,
+                    planned_minutes=minutes,
+                    cross_work_center=center.id not in person_center_ids.get(allocation.person_id, set()),
+                    existing=True,
+                )
+            )
+
+        new_minutes = final_minutes[len(existing_allocations):]
+        for person, ratio, minutes in zip(selected_people, ratios, new_minutes):
+            is_cross = center.id not in person_center_ids.get(person.id, set())
+            preview_allocations.append(
+                DispatchAutoAssignAllocation(
+                    person_id=person.id,
+                    employee_no=person.employee_no,
+                    person_name=person.name,
+                    ratio_percent=ratio,
+                    planned_minutes=minutes,
+                    cross_work_center=is_cross,
+                    existing=False,
+                )
+            )
+            workload_minutes[person.id] += minutes
+
+        previews.append(
+            DispatchAutoAssignTaskPreview(
+                **base_preview,
+                allocations=preview_allocations,
+                multi_person=len(preview_allocations) > 1,
+                cross_work_center=any(allocation.cross_work_center for allocation in preview_allocations) or cross_fallback,
+            )
+        )
+
+    return DispatchAutoAssignResponse(
+        schedule=schedule,
+        summary=_auto_assign_summary(previews),
+        tasks=previews,
+    )
+
+
+async def preview_auto_assign_dispatch(
+    db: AsyncSession,
+    schedule_id: int,
+    request: DispatchAutoAssignRequest,
+) -> DispatchAutoAssignResponse:
+    return await _build_auto_assign_preview(db, schedule_id, request)
+
+
+async def apply_auto_assign_dispatch(
+    db: AsyncSession,
+    schedule_id: int,
+    request: DispatchAutoAssignRequest,
+) -> DispatchAutoAssignResponse:
+    preview = await _build_auto_assign_preview(db, schedule_id, request)
+    processable = [task for task in preview.tasks if not task.skipped]
+    if not processable:
+        return preview
+
+    item_ids = [task.schedule_item_id for task in processable]
+    await db.execute(
+        sqla_delete(ProductionScheduleItemPersonnelAllocation)
+        .where(ProductionScheduleItemPersonnelAllocation.schedule_item_id.in_(item_ids))
+    )
+    for task in processable:
+        for allocation in task.allocations:
+            db.add(
+                ProductionScheduleItemPersonnelAllocation(
+                    schedule_item_id=task.schedule_item_id,
+                    person_id=allocation.person_id,
+                    ratio_percent=allocation.ratio_percent,
+                    planned_minutes=allocation.planned_minutes,
+                )
+            )
+
+    await db.commit()
+    preview.summary = _auto_assign_summary(preview.tasks)
+    return preview
+
+
+async def _recalculate_schedule_from_item(
+    db: AsyncSession,
+    anchor_item_id: int,
+) -> int:
+    anchor = await db.get(ProductionScheduleItem, anchor_item_id)
+    if anchor is None:
+        raise ValueError("排产明细不存在。")
+
+    items_result = await db.execute(
+        select(ProductionScheduleItem)
+        .where(ProductionScheduleItem.schedule_id == anchor.schedule_id)
+        .options(
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
+        )
+        .execution_options(populate_existing=True)
+    )
+    items = list(items_result.scalars().all())
+    item_by_operation = {item.operation_id: item for item in items}
+    fixed_items = [item for item in items if item.start_time < anchor.start_time and item.id != anchor_item_id]
+    pending_by_operation = {
+        item.operation_id: item
+        for item in items
+        if item.id == anchor_item_id or item.start_time >= anchor.start_time
+    }
+    if not pending_by_operation:
+        return 0
+
+    dependency_result = await db.execute(select(OperationDependency))
+    dependencies = list(dependency_result.scalars().all())
+    dep_map: dict[int, set[int]] = defaultdict(set)
+    for dependency in dependencies:
+        if dependency.operation_id in item_by_operation:
+            if dependency.depends_on_operation_id not in item_by_operation:
+                raise ValueError("排产方案存在缺失的前置工序，无法重算。")
+            dep_map[dependency.operation_id].add(dependency.depends_on_operation_id)
+
+    completed_end: dict[int, datetime] = {
+        item.operation_id: item.end_time
+        for item in fixed_items
+    }
+    work_center_ready: dict[int, datetime] = {}
+    external_ready: dict[tuple[int, int], datetime] = {}
+    sequence_counter: dict[str, int] = {}
+
+    for item in sorted(fixed_items, key=lambda row: (row.start_time, row.id)):
+        if item.is_external:
+            _, _, _, resource_key = _schedule_external_on_slot(
+                item.operation.work_center,
+                item.start_time,
+                scheduled_work_hours(item.start_time, item.end_time),
+                external_ready,
+                anchor.start_time,
+                forced_end=item.end_time,
+            )
+        else:
+            resource_key = f"work-center:{item.work_center_id}"
+            work_center_ready[item.work_center_id] = max(
+                work_center_ready.get(item.work_center_id, item.end_time),
+                item.end_time,
+            )
+        sequence_counter[resource_key] = sequence_counter.get(resource_key, 0) + 1
+
+    base_start = anchor.start_time
+    recalculated_count = 0
+
+    while pending_by_operation:
+        ready = [
+            item
+            for item in pending_by_operation.values()
+            if dep_map.get(item.operation_id, set()).issubset(completed_end.keys())
+        ]
+        if not ready:
+            raise ValueError("Operation dependency graph contains a cycle or missing dependency.")
+
+        item = sorted(ready, key=lambda row: _operation_priority_key(row.operation))[0]
+        operation = item.operation
+        center = operation.work_center
+        dependency_end = max(
+            [completed_end[dep_id] for dep_id in dep_map.get(item.operation_id, set())],
+            default=base_start,
+        )
+        start_floor = max(base_start, dependency_end)
+
+        if center.is_external:
+            duration_h = effective_operation_duration_hours(operation) or _external_default_duration_hours(center)
+            start_time_val, end_time, _, resource_key = _schedule_external_on_slot(
+                center,
+                start_floor,
+                duration_h,
+                external_ready,
+                base_start,
+                forced_end=_external_task_end_override(item),
+            )
+            item.external_expected_return_at = end_time
+            if item.external_status in {None, ""}:
+                item.external_status = "pending"
+        else:
+            duration_h = effective_operation_duration_hours(operation)
+            start_time_val = next_work_time(
+                max(start_floor, work_center_ready.get(center.id, base_start))
+            )
+            end_time = add_work_hours(start_time_val, duration_h)
+            work_center_ready[center.id] = end_time
+            resource_key = f"work-center:{center.id}"
+            allocations = sorted(item.personnel_allocations, key=lambda row: (row.person.name, row.person_id))
+            if allocations:
+                planned_minutes = _allocation_minutes_for_operation(
+                    operation,
+                    [allocation.ratio_percent for allocation in allocations],
+                )
+                for allocation, minutes in zip(allocations, planned_minutes):
+                    allocation.planned_minutes = minutes
+
+        sequence_counter[resource_key] = sequence_counter.get(resource_key, 0) + 1
+        item.start_time = start_time_val
+        item.end_time = end_time
+        item.sequence_on_resource = sequence_counter[resource_key]
+        item.machine_id = None if not center.is_external else item.machine_id
+        completed_end[item.operation_id] = end_time
+        pending_by_operation.pop(item.operation_id)
+        recalculated_count += 1
+
+    return recalculated_count
+
+
 async def save_personnel_allocations(
     db: AsyncSession,
     schedule_item_id: int,
     allocations: list[PersonnelAllocationWrite],
-) -> list[PersonnelAllocationRead]:
+) -> PersonnelAllocationSaveResponse:
     item = await db.get(
         ProductionScheduleItem,
         schedule_item_id,
         options=[
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
             selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
                 ProductionScheduleItemPersonnelAllocation.person
             ),
@@ -1235,6 +1902,8 @@ async def save_personnel_allocations(
     )
     if item is None:
         raise ValueError("排产明细不存在。")
+    if item.operation.work_center.is_external:
+        raise ValueError("外协工段不占用内部人员，不需要派工分摊。")
     if not allocations:
         raise ValueError("至少需要分配一名人员，且占比合计必须为 100%。")
 
@@ -1258,10 +1927,8 @@ async def save_personnel_allocations(
     inactive = [person.name for person in people_by_id.values() if person.status != "active"]
     if inactive:
         raise ValueError(f"以下人员不是在职状态：{'、'.join(sorted(inactive))}。")
-
-    total_minutes = scheduled_work_minutes(item.start_time, item.end_time)
-    planned_minutes = _allocation_planned_minutes(
-        total_minutes,
+    planned_minutes = _allocation_minutes_for_operation(
+        item.operation,
         [allocation.ratio_percent for allocation in allocations],
     )
 
@@ -1280,13 +1947,152 @@ async def save_personnel_allocations(
         )
 
     await db.commit()
-    refreshed = await db.execute(
-        select(ProductionScheduleItemPersonnelAllocation)
-        .where(ProductionScheduleItemPersonnelAllocation.schedule_item_id == schedule_item_id)
-        .options(selectinload(ProductionScheduleItemPersonnelAllocation.person))
-        .order_by(ProductionScheduleItemPersonnelAllocation.id)
+    refreshed_item_result = await db.execute(
+        select(ProductionScheduleItem)
+        .where(ProductionScheduleItem.id == schedule_item_id)
+        .options(
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.machine),
+            selectinload(ProductionScheduleItem.schedule),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
+        )
+        .execution_options(populate_existing=True)
     )
-    return [_serialize_allocation(allocation) for allocation in refreshed.scalars().all()]
+    refreshed_item = refreshed_item_result.scalars().one()
+    refreshed_allocations = sorted(
+        refreshed_item.personnel_allocations,
+        key=lambda allocation: (allocation.person.name, allocation.person_id),
+    )
+    return PersonnelAllocationSaveResponse(
+        schedule=refreshed_item.schedule,
+        task=_dispatch_row(refreshed_item),
+        allocations=[_serialize_allocation(allocation) for allocation in refreshed_allocations],
+    )
+
+
+async def save_batch_personnel_allocations(
+    db: AsyncSession,
+    schedule_id: int,
+    request: PersonnelBatchAllocationRequest,
+) -> PersonnelBatchAllocationResponse:
+    schedule = await db.get(ProductionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("排产方案不存在。")
+
+    requested_ids = list(dict.fromkeys(request.schedule_item_ids))
+    if not requested_ids:
+        raise ValueError("至少需要选择一条排产明细。")
+    if not request.allocations:
+        raise ValueError("至少需要分配一名人员，且占比合计必须为 100%。")
+
+    person_ids = [allocation.person_id for allocation in request.allocations]
+    if len(person_ids) != len(set(person_ids)):
+        raise ValueError("同一个人员不能在同一任务中重复分配。")
+
+    ratio_sum = 0.0
+    for allocation in request.allocations:
+        if allocation.ratio_percent <= 0 or allocation.ratio_percent > 100:
+            raise ValueError("人员占比必须大于 0 且不超过 100%。")
+        ratio_sum += allocation.ratio_percent
+    if abs(ratio_sum - 100) > 0.001:
+        raise ValueError("人员占比合计必须为 100%。")
+
+    people_result = await db.execute(select(Personnel).where(Personnel.id.in_(person_ids)))
+    people_by_id = {person.id: person for person in people_result.scalars().all()}
+    missing_ids = [person_id for person_id in person_ids if person_id not in people_by_id]
+    if missing_ids:
+        raise ValueError(f"人员不存在：{', '.join(str(person_id) for person_id in missing_ids)}。")
+    inactive = [person.name for person in people_by_id.values() if person.status != "active"]
+    if inactive:
+        raise ValueError(f"以下人员不是在职状态：{'、'.join(sorted(inactive))}。")
+
+    result = await db.execute(
+        select(ProductionScheduleItem)
+        .where(
+            ProductionScheduleItem.schedule_id == schedule_id,
+            ProductionScheduleItem.id.in_(requested_ids),
+        )
+        .options(
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.personnel_allocations).selectinload(
+                ProductionScheduleItemPersonnelAllocation.person
+            ),
+        )
+        .order_by(ProductionScheduleItem.start_time, ProductionScheduleItem.id)
+    )
+    items = list(result.scalars().all())
+    items_by_id = {item.id: item for item in items}
+    skipped: list[PersonnelBatchAllocationSkippedItem] = []
+    processed: list[ProductionScheduleItem] = []
+
+    for schedule_item_id in requested_ids:
+        item = items_by_id.get(schedule_item_id)
+        if item is None:
+            skipped.append(
+                PersonnelBatchAllocationSkippedItem(
+                    schedule_item_id=schedule_item_id,
+                    reason="排产明细不存在或不属于当前方案。",
+                )
+            )
+            continue
+        operation = item.operation
+        if operation.work_center.is_external:
+            skipped.append(
+                PersonnelBatchAllocationSkippedItem(
+                    schedule_item_id=item.id,
+                    order_no=operation.work_order.order_no,
+                    operation_name=operation.name,
+                    reason="外协工段不占用内部人员。",
+                )
+            )
+            continue
+        if not request.overwrite_assigned and _allocation_status_for_item(item) == "assigned":
+            skipped.append(
+                PersonnelBatchAllocationSkippedItem(
+                    schedule_item_id=item.id,
+                    order_no=operation.work_order.order_no,
+                    operation_name=operation.name,
+                    reason="已完整派工，默认不覆盖。",
+                )
+            )
+            continue
+        processed.append(item)
+
+    if processed:
+        processed_ids = [item.id for item in processed]
+        await db.execute(
+            sqla_delete(ProductionScheduleItemPersonnelAllocation)
+            .where(ProductionScheduleItemPersonnelAllocation.schedule_item_id.in_(processed_ids))
+        )
+        for item in processed:
+            planned_minutes = _allocation_minutes_for_operation(
+                item.operation,
+                [allocation.ratio_percent for allocation in request.allocations],
+            )
+            for allocation, minutes in zip(request.allocations, planned_minutes):
+                db.add(
+                    ProductionScheduleItemPersonnelAllocation(
+                        schedule_item_id=item.id,
+                        person_id=allocation.person_id,
+                        ratio_percent=allocation.ratio_percent,
+                        planned_minutes=minutes,
+                    )
+                )
+
+        await db.commit()
+        schedule = await db.get(ProductionSchedule, schedule_id)
+    return PersonnelBatchAllocationResponse(
+        schedule=schedule,
+        processed_count=len(processed),
+        skipped_count=len(skipped),
+        skipped_items=skipped,
+    )
 
 
 async def get_personnel_workload(db: AsyncSession, schedule_id: int) -> PersonnelWorkloadResponse:
@@ -1318,6 +2124,8 @@ async def get_personnel_workload(db: AsyncSession, schedule_id: int) -> Personne
     grouped: dict[int, dict] = {}
     for allocation in result.scalars().all():
         item = allocation.schedule_item
+        if is_monitor_hidden_schedule_item(item):
+            continue
         operation = item.operation
         work_order = operation.work_order
         part = operation.part
@@ -1370,6 +2178,529 @@ async def get_personnel_workload(db: AsyncSession, schedule_id: int) -> Personne
     return PersonnelWorkloadResponse(schedule=schedule, rows=rows)
 
 
+async def export_personnel_workload_to_excel(db: AsyncSession, schedule_id: int) -> tuple[bytes, str]:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    response = await get_personnel_workload(db, schedule_id)
+    schedule = response.schedule
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="2D5D8C", end_color="2D5D8C", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+
+    def style_header(ws, col_count: int) -> None:
+        for col in range(1, col_count + 1):
+            cell = ws.cell(1, col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
+
+    def style_body_row(ws, row_idx: int, col_count: int) -> None:
+        for col in range(1, col_count + 1):
+            ws.cell(row_idx, col).border = thin_border
+
+    def set_widths(ws, widths: list[int]) -> None:
+        for col, width in enumerate(widths, 1):
+            ws.column_dimensions[ws.cell(1, col).column_letter].width = width
+
+    wb = Workbook()
+
+    summary = wb.active
+    summary.title = "人员工时汇总"
+    summary_headers = ["人员", "工号", "任务数", "计划工时(小时)", "订单数", "工段数"]
+    summary.append(summary_headers)
+    style_header(summary, len(summary_headers))
+    for row_idx, row in enumerate(response.rows, 2):
+        summary.append([
+            row.person_name,
+            row.employee_no,
+            row.task_count,
+            round(row.planned_minutes / 60, 2),
+            row.order_count,
+            row.work_center_count,
+        ])
+        style_body_row(summary, row_idx, len(summary_headers))
+    set_widths(summary, [18, 16, 12, 16, 12, 12])
+
+    detail = wb.create_sheet("任务明细")
+    detail_headers = [
+        "人员",
+        "工号",
+        "订单号",
+        "图号",
+        "零件号",
+        "工序",
+        "工段",
+        "计划开始",
+        "计划结束",
+        "占比",
+        "计划工时(小时)",
+    ]
+    detail.append(detail_headers)
+    style_header(detail, len(detail_headers))
+    row_idx = 2
+    for row in response.rows:
+        for task in row.tasks:
+            detail.append([
+                row.person_name,
+                row.employee_no,
+                task.order_no,
+                task.drawing_no,
+                task.part_no,
+                task.operation_name,
+                task.work_center_name,
+                task.planned_start.strftime("%Y-%m-%d %H:%M"),
+                task.planned_end.strftime("%Y-%m-%d %H:%M"),
+                f"{task.ratio_percent:g}%",
+                round(task.planned_minutes / 60, 2),
+            ])
+            style_body_row(detail, row_idx, len(detail_headers))
+            row_idx += 1
+    set_widths(detail, [18, 16, 16, 18, 16, 18, 16, 18, 18, 10, 16])
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"人员工时汇总_{schedule.schedule_no or schedule_id}.xlsx"
+    return buffer.getvalue(), filename
+
+
+async def export_work_order_tickets_to_excel(
+    db: AsyncSession,
+    schedule_id: int,
+    work_order_id: int | None = None,
+    work_center_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> tuple[bytes, str]:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    response = await list_work_order_tickets(
+        db,
+        schedule_id,
+        work_order_id=work_order_id,
+        work_center_id=work_center_id,
+        date_from=date_from,
+        date_to=date_to,
+        ticket_status="ready_to_export",
+    )
+    schedule = response.schedule
+    tasks = response.tasks
+    if not tasks:
+        raise ValueError("当前筛选条件下没有已确认派工任务，无法生成加工单。")
+
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    header_fill = PatternFill(start_color="2D5D8C", end_color="2D5D8C", fill_type="solid")
+    thin_border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+
+    def style_header(ws, col_count: int) -> None:
+        for col in range(1, col_count + 1):
+            cell = ws.cell(1, col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
+
+    def style_body_row(ws, row_idx: int, col_count: int) -> None:
+        for col in range(1, col_count + 1):
+            cell = ws.cell(row_idx, col)
+            cell.border = thin_border
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+    def set_widths(ws, widths: list[int]) -> None:
+        for col, width in enumerate(widths, 1):
+            ws.column_dimensions[ws.cell(1, col).column_letter].width = width
+
+    def hours(minutes: int) -> float:
+        return round((minutes or 0) / 60, 2)
+
+    wb = Workbook()
+    tickets = wb.active
+    tickets.title = "加工单明细"
+    ticket_headers = [
+        "加工单号",
+        "排产方案",
+        "订单号",
+        "客户",
+        "图号",
+        "零件号",
+        "零件名称",
+        "工序",
+        "工段",
+        "设备",
+        "计划开始",
+        "计划结束",
+        "工时(小时)",
+        "分配人员",
+        "加工要求",
+    ]
+    tickets.append(ticket_headers)
+    style_header(tickets, len(ticket_headers))
+    for row_idx, task in enumerate(tasks, 2):
+        ticket_no = f"JG-{schedule.schedule_no}-{task.schedule_item_id}"
+        allocations = " / ".join(
+            f"{allocation.person_name} {allocation.ratio_percent:g}% ({hours(allocation.planned_minutes)}h)"
+            for allocation in task.allocations
+        )
+        tickets.append([
+            ticket_no,
+            schedule.schedule_no,
+            task.order_no,
+            task.customer,
+            task.drawing_no,
+            task.part_no,
+            task.part_name,
+            task.operation_name,
+            task.work_center_name,
+            task.machine_name or "",
+            task.planned_start.strftime("%Y-%m-%d %H:%M"),
+            task.planned_end.strftime("%Y-%m-%d %H:%M"),
+            hours(task.planned_minutes),
+            allocations,
+            task.requirement_note or "",
+        ])
+        style_body_row(tickets, row_idx, len(ticket_headers))
+    set_widths(tickets, [20, 18, 18, 16, 18, 16, 18, 16, 14, 14, 18, 18, 12, 34, 36])
+
+    detail = wb.create_sheet("人员任务明细")
+    detail_headers = [
+        "加工单号",
+        "人员",
+        "工号",
+        "分摊比例",
+        "分摊工时(小时)",
+        "订单号",
+        "零件名称",
+        "工序",
+        "工段",
+        "计划开始",
+        "计划结束",
+    ]
+    detail.append(detail_headers)
+    style_header(detail, len(detail_headers))
+    detail_row = 2
+    for task in tasks:
+        ticket_no = f"JG-{schedule.schedule_no}-{task.schedule_item_id}"
+        for allocation in task.allocations:
+            detail.append([
+                ticket_no,
+                allocation.person_name,
+                allocation.employee_no,
+                f"{allocation.ratio_percent:g}%",
+                hours(allocation.planned_minutes),
+                task.order_no,
+                task.part_name,
+                task.operation_name,
+                task.work_center_name,
+                task.planned_start.strftime("%Y-%m-%d %H:%M"),
+                task.planned_end.strftime("%Y-%m-%d %H:%M"),
+            ])
+            style_body_row(detail, detail_row, len(detail_headers))
+            detail_row += 1
+    set_widths(detail, [20, 14, 14, 12, 16, 18, 18, 16, 14, 18, 18])
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"加工单_{schedule.schedule_no or schedule_id}_{datetime.now().strftime('%Y%m%d%H%M')}.xlsx"
+    export_record = ExportBatch(
+        export_type="work_order_ticket",
+        schedule_id=schedule_id,
+        filename=filename,
+        params_json=json.dumps(
+            {
+                "work_order_id": work_order_id,
+                "work_center_id": work_center_id,
+                "date_from": date_from.isoformat() if date_from else None,
+                "date_to": date_to.isoformat() if date_to else None,
+                "schedule_item_ids": [task.schedule_item_id for task in tasks],
+            },
+            ensure_ascii=False,
+        ),
+    )
+    db.add(export_record)
+    await db.commit()
+    return buffer.getvalue(), filename
+
+
+async def export_construction_sheets_to_excel(
+    db: AsyncSession,
+    schedule_id: int,
+    work_order_id: int | None = None,
+    work_center_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> tuple[bytes, str]:
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    schedule = await db.get(ProductionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("排产方案不存在。")
+
+    query = (
+        select(ProductionScheduleItem)
+        .where(
+            ProductionScheduleItem.schedule_id == schedule_id,
+            ProductionScheduleItem.is_external == False,
+        )
+        .options(
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.machine),
+        )
+        .order_by(
+            ProductionScheduleItem.work_order_id,
+            ProductionScheduleItem.part_id,
+            ProductionScheduleItem.start_time,
+            ProductionScheduleItem.sequence_on_resource,
+            ProductionScheduleItem.id,
+        )
+    )
+    if work_order_id is not None:
+        query = query.where(ProductionScheduleItem.work_order_id == work_order_id)
+    if work_center_id is not None:
+        query = query.where(ProductionScheduleItem.work_center_id == work_center_id)
+    if date_from is not None:
+        query = query.where(ProductionScheduleItem.start_time >= datetime.combine(date_from, time.min))
+    if date_to is not None:
+        query = query.where(ProductionScheduleItem.start_time < datetime.combine(date_to + timedelta(days=1), time.min))
+
+    result = await db.execute(query)
+    items = result.scalars().all()
+    if not items:
+        raise ValueError("当前筛选条件下没有已排产的内部工序，无法生成施工单。")
+
+    def construction_key(item: ProductionScheduleItem) -> tuple[int, int]:
+        return (item.work_order_id, item.part_id)
+
+    grouped_items: dict[tuple[int, int], list[ProductionScheduleItem]] = defaultdict(list)
+    for item in items:
+        grouped_items[construction_key(item)].append(item)
+
+    def group_sort_key(group: list[ProductionScheduleItem]) -> tuple[str, int, str, str]:
+        first = group[0]
+        operation = first.operation
+        part = operation.part
+        return (
+            operation.work_order.order_no,
+            part.source_row or 0,
+            part.no or "",
+            part.drawing_no or "",
+        )
+
+    ordered_groups = sorted(grouped_items.values(), key=group_sort_key)
+    if not ordered_groups:
+        raise ValueError("当前筛选条件下没有可导出的施工单。")
+
+    wb = Workbook()
+    default_ws = wb.active
+    wb.remove(default_ws)
+
+    title_font = Font(name="SimSun", size=18, bold=True)
+    company_font = Font(name="SimSun", size=14, bold=True)
+    header_font = Font(name="SimSun", size=11, bold=True)
+    body_font = Font(name="SimSun", size=11)
+    small_font = Font(name="SimSun", size=10)
+    barcode_font = Font(name="C39HrP24DhTt", size=22)
+    header_fill = PatternFill(start_color="E9EEF5", end_color="E9EEF5", fill_type="solid")
+    thin = Side(style="thin", color="000000")
+    medium = Side(style="medium", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    section_border = Border(left=thin, right=thin, top=medium, bottom=thin)
+
+    def safe_sheet_title(base: str, used: set[str]) -> str:
+        cleaned = re.sub(r"[:\\/?*\[\]]+", "-", base).strip() or "施工单"
+        title = cleaned[:31]
+        if title not in used:
+            used.add(title)
+            return title
+        suffix = 2
+        while True:
+            suffix_text = f"-{suffix}"
+            candidate = f"{cleaned[:31 - len(suffix_text)]}{suffix_text}"
+            if candidate not in used:
+                used.add(candidate)
+                return candidate
+            suffix += 1
+
+    def fmt_day(value: datetime | None) -> str:
+        return value.strftime("%Y-%m-%d") if value else ""
+
+    def fmt_hours(value: float | int | None) -> float:
+        return round(float(value or 0), 2)
+
+    def merge(ws, start: str, end: str, value: Any = None) -> None:
+        ws.merge_cells(f"{start}:{end}")
+        if value is not None:
+            ws[start] = value
+
+    def style_range(ws, row_start: int, row_end: int, col_start: int = 1, col_end: int = 13) -> None:
+        for row in range(row_start, row_end + 1):
+            for col in range(col_start, col_end + 1):
+                cell = ws.cell(row, col)
+                cell.border = border
+                cell.font = body_font
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    used_titles: set[str] = set()
+    exported_item_ids: list[int] = []
+    for group in ordered_groups:
+        group.sort(key=lambda item: (item.operation.seq_no, item.start_time, item.sequence_on_resource, item.id))
+        first = group[0]
+        operation = first.operation
+        work_order = operation.work_order
+        part = operation.part
+        title = safe_sheet_title(f"{work_order.order_no}-{part.drawing_no or part.no}", used_titles)
+        ws = wb.create_sheet(title=title)
+
+        ws.sheet_view.showGridLines = False
+        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+        ws.page_setup.paperSize = ws.PAPERSIZE_A4
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_margins.left = 0.25
+        ws.page_margins.right = 0.25
+        ws.page_margins.top = 0.36
+        ws.page_margins.bottom = 0.42
+        ws.print_title_rows = "1:6"
+
+        widths = [8, 14, 16, 16, 16, 12, 13, 13, 12, 10, 10, 24, 18]
+        for idx, width in enumerate(widths, 1):
+            ws.column_dimensions[get_column_letter(idx)].width = width
+
+        merge(ws, "A1", "D1", "上海光灿机械制造有限公司")
+        merge(ws, "E1", "J1", "零 件 工 艺 施 工 单")
+        ws["K1"] = "图号"
+        merge(ws, "L1", "M1", part.drawing_no or part.no or "")
+        merge(ws, "A2", "D2", "GC-5-02-1")
+        merge(ws, "E2", "J2", f"排产方案：{schedule.schedule_no}")
+        ws["K2"] = "名称"
+        merge(ws, "L2", "M2", part.name or "")
+        ws["A3"] = "材料牌号"
+        merge(ws, "B3", "D3", part.material or "")
+        ws["E3"] = "材料重量"
+        ws["F3"] = part.material_weight or ""
+        merge(ws, "G3", "J3", "每件毛坯加工件数")
+        ws["K3"] = "订单号，工号"
+        merge(ws, "L3", "M3", work_order.order_no)
+        ws["A4"] = "毛坯种类"
+        merge(ws, "B4", "D4", "")
+        ws["E4"] = "订单数量"
+        ws["F4"] = work_order.quantity
+        merge(ws, "G4", "J4", f"零件数量：{part.quantity}")
+        ws["K4"] = "要求完成日期"
+        merge(ws, "L4", "M4", fmt_day(work_order.due_date))
+
+        merge(ws, "A5", "A6", "序号")
+        merge(ws, "B5", "B6", "工 序")
+        merge(ws, "C5", "E6", "工序重点说明，夹具，刀具，量具准备")
+        merge(ws, "F5", "F6", "单件 H工时")
+        merge(ws, "G5", "G6", "工作日期")
+        merge(ws, "H5", "H6", "完工日期")
+        merge(ws, "I5", "I6", "操作员")
+        merge(ws, "J5", "K5", "检验")
+        ws["J6"] = "合格数"
+        ws["K6"] = "检验员"
+        merge(ws, "L5", "L6", "关键尺寸/备注")
+        ws["M5"] = "条码"
+        ws["M6"] = "图号，工序"
+
+        style_range(ws, 1, 6)
+        for cell in ws[1]:
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws["A1"].font = company_font
+        ws["E1"].font = title_font
+        for row in range(5, 7):
+            for col in range(1, 14):
+                cell = ws.cell(row, col)
+                cell.font = header_font
+                cell.fill = header_fill
+
+        row_idx = 7
+        for index, item in enumerate(group, 1):
+            op = item.operation
+            ticket_no = f"JG-{schedule.schedule_no}-{item.id}"
+            exported_item_ids.append(item.id)
+            values = {
+                1: index,
+                2: op.name,
+                3: op.requirement_note or "",
+                6: fmt_hours(op.duration_hours),
+                7: fmt_day(item.start_time),
+                8: "",
+                9: "",
+                10: "",
+                11: "",
+                12: part.note or "",
+                13: f"*{ticket_no}*",
+            }
+            for col, value in values.items():
+                ws.cell(row_idx, col).value = value
+            merge(ws, f"C{row_idx}", f"E{row_idx}")
+            style_range(ws, row_idx, row_idx)
+            for col in range(1, 14):
+                ws.cell(row_idx, col).border = section_border if index == 1 else border
+            ws.cell(row_idx, 2).font = header_font
+            ws.cell(row_idx, 3).font = small_font
+            ws.cell(row_idx, 12).font = small_font
+            ws.cell(row_idx, 13).font = barcode_font
+            ws.cell(row_idx, 3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            ws.cell(row_idx, 12).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            ws.row_dimensions[row_idx].height = 34
+            row_idx += 1
+
+        signature_row = max(row_idx, 25)
+        for blank_row in range(row_idx, signature_row):
+            style_range(ws, blank_row, blank_row)
+            ws.row_dimensions[blank_row].height = 28
+        merge(ws, f"A{signature_row}", f"M{signature_row}", "制表：")
+        style_range(ws, signature_row, signature_row)
+        ws.cell(signature_row, 1).alignment = Alignment(horizontal="left", vertical="center")
+        ws.row_dimensions[signature_row].height = 28
+        ws.print_area = f"A1:M{signature_row}"
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    filename = f"施工单_{schedule.schedule_no or schedule_id}_{datetime.now().strftime('%Y%m%d%H%M')}.xlsx"
+    export_record = ExportBatch(
+        export_type="construction_sheet",
+        schedule_id=schedule_id,
+        filename=filename,
+        params_json=json.dumps(
+            {
+                "work_order_id": work_order_id,
+                "work_center_id": work_center_id,
+                "date_from": date_from.isoformat() if date_from else None,
+                "date_to": date_to.isoformat() if date_to else None,
+                "schedule_item_ids": exported_item_ids,
+                "sheet_count": len(ordered_groups),
+            },
+            ensure_ascii=False,
+        ),
+    )
+    db.add(export_record)
+    await db.commit()
+    return buffer.getvalue(), filename
+
+
 async def list_pending_operations(db: AsyncSession) -> list[dict]:
     result = await db.execute(
         select(ProductionOperation)
@@ -1387,6 +2718,8 @@ async def list_pending_operations(db: AsyncSession) -> list[dict]:
     )
     rows = []
     for operation in result.scalars().all():
+        if is_monitor_hidden_operation(operation):
+            continue
         rows.append(
             {
                 "id": operation.id,
@@ -1396,6 +2729,7 @@ async def list_pending_operations(db: AsyncSession) -> list[dict]:
                 "name": operation.name,
                 "seq_no": operation.seq_no,
                 "duration_hours": operation.duration_hours,
+                "requirement_note": operation.requirement_note,
                 "part_quantity": operation.part.quantity,
                 "effective_duration_hours": effective_operation_duration_hours(operation),
                 "status": operation.status,
@@ -1476,6 +2810,95 @@ def _allocation_planned_minutes(total_minutes: int, ratios: list[float]) -> list
     return planned
 
 
+def _operation_person_minutes(operation: ProductionOperation) -> int:
+    return max(int(round(effective_operation_duration_hours(operation) * 60)), 1)
+
+
+def _operation_duration_for_people(operation: ProductionOperation, person_count: int) -> float:
+    return round(effective_operation_duration_hours(operation) / max(person_count, 1), 3)
+
+
+def _external_slot_count(center: WorkCenter) -> int:
+    return max(int(center.external_capacity_slots or 1), 1)
+
+
+def _external_default_duration_hours(center: WorkCenter) -> float:
+    return float(center.external_lead_time_hours or center.default_duration_hours or 8)
+
+
+def _external_task_end_override(item: ProductionScheduleItem) -> datetime | None:
+    if item.external_status == "returned" and item.external_returned_at:
+        return item.external_returned_at
+    if item.external_status in {"sent", "exception"} and item.external_expected_return_at:
+        return item.external_expected_return_at
+    return None
+
+
+def _schedule_external_on_slot(
+    center: WorkCenter,
+    start_floor: datetime,
+    duration_h: float,
+    external_ready: dict[tuple[int, int], datetime],
+    base_start: datetime,
+    forced_end: datetime | None = None,
+) -> tuple[datetime, datetime, int, str]:
+    candidates = []
+    for slot_index in range(_external_slot_count(center)):
+        proposed = max(start_floor, external_ready.get((center.id, slot_index), base_start))
+        actual_start = next_work_time(proposed)
+        if forced_end and forced_end > actual_start:
+            actual_end = forced_end
+        else:
+            actual_end = add_work_hours(actual_start, duration_h)
+        candidates.append((actual_end, actual_start, slot_index))
+    end_time, start_time_val, slot_index = min(candidates)
+    external_ready[(center.id, slot_index)] = end_time
+    return start_time_val, end_time, slot_index, f"external-{center.id}:{slot_index}"
+
+
+def _allocation_minutes_for_operation(
+    operation: ProductionOperation,
+    ratios: list[float],
+) -> list[int]:
+    return _allocation_planned_minutes(_operation_person_minutes(operation), ratios)
+
+
+def _operation_priority_key(operation: ProductionOperation) -> tuple:
+    return (
+        -operation.work_order.priority,
+        operation.work_order.due_date,
+        operation.work_order.created_at,
+        operation.part.no,
+        operation.seq_no,
+        operation.id,
+    )
+
+
+async def _active_personnel_by_work_center(
+    db: AsyncSession,
+    work_center_ids: set[int],
+) -> dict[int, list[WorkCenterPersonnel]]:
+    if not work_center_ids:
+        return {}
+    result = await db.execute(
+        select(WorkCenterPersonnel)
+        .where(WorkCenterPersonnel.work_center_id.in_(work_center_ids))
+        .join(Personnel, WorkCenterPersonnel.person_id == Personnel.id)
+        .where(Personnel.status == "active")
+        .options(selectinload(WorkCenterPersonnel.person))
+        .order_by(
+            WorkCenterPersonnel.work_center_id,
+            WorkCenterPersonnel.sort_order,
+            Personnel.name,
+            Personnel.id,
+        )
+    )
+    people_by_center: dict[int, list[WorkCenterPersonnel]] = defaultdict(list)
+    for link in result.scalars().all():
+        people_by_center[link.work_center_id].append(link)
+    return people_by_center
+
+
 async def run_production_scheduling(
     db: AsyncSession,
     start_time: datetime | None = None,
@@ -1513,7 +2936,6 @@ async def run_production_scheduling(
     all_operations = list(operation_result.scalars().all())
     if not all_operations:
         raise ValueError("没有找到待排工序。请先导入工单或检查订单范围。")
-
     # If work_order_ids specified, validate orders exist and are pending
     if work_order_ids:
         order_result = await db.execute(
@@ -1560,87 +2982,11 @@ async def run_production_scheduling(
             f"涉及订单：{'、'.join(sorted(affected_orders))}。请先启用相关工段或调整排产范围。"
         )
 
-    # Load locked items from base schedule if re-scheduling
-    locked_machine_intervals: dict[int, list[tuple[datetime, datetime]]] = {}
-    locked_external_intervals: dict[int, list[tuple[datetime, datetime]]] = {}
-    locked_order_ids: set[int] = set()
-
-    if keep_locked and base_schedule_id:
-        locked_result = await db.execute(
-            select(ProductionScheduleOrderLock)
-            .where(
-                ProductionScheduleOrderLock.schedule_id == base_schedule_id,
-                ProductionScheduleOrderLock.locked == True,
-            )
-        )
-        locked_order_ids = {lock.work_order_id for lock in locked_result.scalars().all()}
-
-        if locked_order_ids:
-            # Load locked schedule items
-            locked_items_result = await db.execute(
-                select(ProductionScheduleItem)
-                .where(
-                    ProductionScheduleItem.schedule_id == base_schedule_id,
-                    ProductionScheduleItem.work_order_id.in_(locked_order_ids),
-                )
-                .options(selectinload(ProductionScheduleItem.personnel_allocations))
-            )
-            locked_items = locked_items_result.scalars().all()
-
-            # Collect locked time intervals per resource
-            for item in locked_items:
-                if item.machine_id:
-                    locked_machine_intervals.setdefault(item.machine_id, []).append(
-                        (item.start_time, item.end_time)
-                    )
-                else:
-                    locked_external_intervals.setdefault(item.work_center_id, []).append(
-                        (item.start_time, item.end_time)
-                    )
-
-            # Remove locked order operations from pending (they are locked, won't re-schedule)
-            for op_id in list(pending_by_id.keys()):
-                if pending_by_id[op_id].work_order_id in locked_order_ids:
-                    pending_by_id.pop(op_id)
-
-    # If all operations are locked, nothing to schedule
-    if not pending_by_id:
-        raise ValueError("所有选中订单的工序已被锁定，无需重新排产。请选择其他订单或取消锁定。")
-
     completed_end: dict[int, datetime] = {}
-    machine_ready: dict[int, datetime] = {}
-    external_ready: dict[int, datetime] = {}
+    work_center_ready: dict[int, datetime] = {}
+    external_ready: dict[tuple[int, int], datetime] = {}
     sequence_counter: dict[str, int] = {}
     planned_items: list[dict] = []
-
-    def _find_earliest_start(
-        proposed_start: datetime,
-        duration_hours: float,
-        intervals: list[tuple[datetime, datetime]],
-    ) -> datetime:
-        """Advance proposed_start past any locked interval overlaps."""
-        result = proposed_start
-        sorted_intervals = sorted(intervals, key=lambda x: x[0])
-        changed = True
-        while changed:
-            changed = False
-            result_end = add_work_hours(result, duration_hours)
-            for int_start, int_end in sorted_intervals:
-                if result < int_end and result_end > int_start:
-                    result = int_end
-                    changed = True
-                    break
-        return result
-
-    def priority_key(operation: ProductionOperation) -> tuple:
-        return (
-            -operation.work_order.priority,
-            operation.work_order.due_date,
-            operation.work_order.created_at,
-            operation.part.no,
-            operation.seq_no,
-            operation.id,
-        )
 
     while pending_by_id:
         ready = [
@@ -1651,39 +2997,39 @@ async def run_production_scheduling(
         if not ready:
             raise ValueError("Operation dependency graph contains a cycle or missing dependency.")
 
-        operation = sorted(ready, key=priority_key)[0]
+        operation = sorted(ready, key=_operation_priority_key)[0]
         dependency_end = max(
             [completed_end[dep_id] for dep_id in dep_map.get(operation.id, set())],
             default=now,
         )
         start_floor = max(now, dependency_end)
         center = operation.work_center
+        if is_monitor_hidden_operation(operation):
+            completed_end[operation.id] = start_floor
+            operation.status = "scheduled"
+            pending_by_id.pop(operation.id)
+            continue
+
         duration_h = effective_operation_duration_hours(operation)
 
         if center.is_external:
-            duration_h = duration_h or center.default_duration_hours
-            proposed = max(start_floor, external_ready.get(center.id, now))
-            intervals = locked_external_intervals.get(center.id, [])
-            start_time_val = _find_earliest_start(proposed, duration_h, intervals)
-            end_time = add_work_hours(start_time_val, duration_h)
-            external_ready[center.id] = end_time
+            duration_h = duration_h or _external_default_duration_hours(center)
+            start_time_val, end_time, _, resource_key = _schedule_external_on_slot(
+                center,
+                start_floor,
+                duration_h,
+                external_ready,
+                now,
+            )
             machine = None
-            resource_key = f"external-{center.id}"
         else:
-            machines = [m for m in center.machines if m.status == "active"]
-            if not machines:
-                raise ValueError(f"工段 {center.name} 没有启用的设备，请先在资源配置中启用设备。")
-
-            candidates = []
-            for candidate in machines:
-                proposed = max(start_floor, machine_ready.get(candidate.id, now))
-                intervals = locked_machine_intervals.get(candidate.id, [])
-                actual_start = _find_earliest_start(proposed, duration_h, intervals)
-                actual_end = add_work_hours(actual_start, duration_h)
-                candidates.append((actual_end, actual_start, candidate))
-            end_time, start_time_val, machine = min(candidates, key=lambda item: (item[0], item[1], item[2].id))
-            machine_ready[machine.id] = end_time
-            resource_key = f"machine-{machine.id}"
+            start_time_val = next_work_time(
+                max(start_floor, work_center_ready.get(center.id, now))
+            )
+            end_time = add_work_hours(start_time_val, duration_h)
+            work_center_ready[center.id] = end_time
+            machine = None
+            resource_key = f"work-center:{center.id}"
 
         sequence_counter[resource_key] = sequence_counter.get(resource_key, 0) + 1
         planned_items.append(
@@ -1698,98 +3044,80 @@ async def run_production_scheduling(
                 "end_time": end_time,
                 "sequence_on_resource": sequence_counter[resource_key],
                 "is_external": center.is_external,
+                "external_status": "pending" if center.is_external else "not_external",
+                "external_expected_return_at": end_time if center.is_external else None,
             }
         )
         completed_end[operation.id] = end_time
         pending_by_id.pop(operation.id)
 
-    run_at = datetime.utcnow()
-    schedule = ProductionSchedule(
-        schedule_no=run_at.strftime("PS-%Y%m%d-%H%M%S-%f"),
-        name=run_at.strftime("Production Schedule %Y-%m-%d %H:%M:%S"),
-        status="active",
-        start_time=now,
-        base_schedule_id=base_schedule_id,
-        run_params_json=json.dumps(
+    try:
+        run_at = datetime.utcnow()
+        schedule = await db.scalar(
+            select(ProductionSchedule).where(ProductionSchedule.schedule_no == "PS-CURRENT")
+        )
+        if schedule is None:
+            schedule = await db.scalar(
+                select(ProductionSchedule)
+                .where(ProductionSchedule.status == "active")
+                .order_by(ProductionSchedule.created_at.desc(), ProductionSchedule.id.desc())
+                .limit(1)
+            )
+        if schedule is None:
+            schedule = ProductionSchedule(
+                schedule_no="PS-CURRENT",
+                name="当前统一排产方案",
+                status="active",
+            )
+            db.add(schedule)
+            await db.flush()
+        else:
+            schedule.status = "active"
+
+        schedule.schedule_no = "PS-CURRENT"
+        schedule.name = "当前统一排产方案"
+        schedule.start_time = now
+        schedule.base_schedule_id = None
+        schedule.run_params_json = json.dumps(
             {
                 "start_time": now.isoformat(),
                 "work_order_ids": work_order_ids,
-                "base_schedule_id": base_schedule_id,
-                "keep_locked": keep_locked,
+                "mode": "current_schedule_overwrite",
+                "run_at": run_at.isoformat(),
             },
             ensure_ascii=False,
-        ),
-    )
+        )
+        schedule.updated_at = run_at
 
-    try:
-        db.add(schedule)
-        await db.flush()
+        existing_item_ids = (
+            await db.execute(
+                select(ProductionScheduleItem.id).where(ProductionScheduleItem.schedule_id == schedule.id)
+            )
+        ).scalars().all()
+        if existing_item_ids:
+            await db.execute(
+                sqla_delete(ProductionScheduleItemPersonnelAllocation)
+                .where(ProductionScheduleItemPersonnelAllocation.schedule_item_id.in_(existing_item_ids))
+            )
+        await db.execute(
+            sqla_delete(ProductionScheduleItem).where(ProductionScheduleItem.schedule_id == schedule.id)
+        )
+        await db.execute(
+            sqla_delete(ProductionScheduleOrderLock).where(ProductionScheduleOrderLock.schedule_id == schedule.id)
+        )
+        await db.execute(
+            sqla_delete(BusinessRiskIssueState).where(BusinessRiskIssueState.schedule_id == schedule.id)
+        )
 
         for planned in planned_items:
             operation = planned.pop("operation")
-            db.add(ProductionScheduleItem(schedule_id=schedule.id, **planned))
+            new_item = ProductionScheduleItem(schedule_id=schedule.id, **planned)
+            db.add(new_item)
+            await db.flush()
             operation.status = "scheduled"
 
         for op in all_operations:
             op.work_order.status = "scheduled"
-
-        # Copy locked order items from base schedule into new schedule
-        if keep_locked and locked_order_ids:
-            base_items_result = await db.execute(
-                select(ProductionScheduleItem)
-                .where(
-                    ProductionScheduleItem.schedule_id == base_schedule_id,
-                    ProductionScheduleItem.work_order_id.in_(locked_order_ids),
-                )
-                .options(selectinload(ProductionScheduleItem.personnel_allocations))
-            )
-            for old_item in base_items_result.scalars().all():
-                new_item = ProductionScheduleItem(
-                    schedule_id=schedule.id,
-                    operation_id=old_item.operation_id,
-                    work_order_id=old_item.work_order_id,
-                    part_id=old_item.part_id,
-                    work_center_id=old_item.work_center_id,
-                    machine_id=old_item.machine_id,
-                    start_time=old_item.start_time,
-                    end_time=old_item.end_time,
-                    sequence_on_resource=old_item.sequence_on_resource,
-                    is_external=old_item.is_external,
-                    locked=True,
-                    locked_at=old_item.locked_at,
-                    locked_by=old_item.locked_by,
-                    lock_reason=old_item.lock_reason,
-                )
-                db.add(new_item)
-                await db.flush()
-                for old_allocation in old_item.personnel_allocations:
-                    db.add(
-                        ProductionScheduleItemPersonnelAllocation(
-                            schedule_item_id=new_item.id,
-                            person_id=old_allocation.person_id,
-                            ratio_percent=old_allocation.ratio_percent,
-                            planned_minutes=old_allocation.planned_minutes,
-                        )
-                    )
-
-            # Copy order lock records to new schedule
-            base_locks_result = await db.execute(
-                select(ProductionScheduleOrderLock).where(
-                    ProductionScheduleOrderLock.schedule_id == base_schedule_id,
-                    ProductionScheduleOrderLock.work_order_id.in_(locked_order_ids),
-                    ProductionScheduleOrderLock.locked == True,
-                )
-            )
-            for old_lock in base_locks_result.scalars().all():
-                new_lock = ProductionScheduleOrderLock(
-                    schedule_id=schedule.id,
-                    work_order_id=old_lock.work_order_id,
-                    locked=True,
-                    locked_at=old_lock.locked_at,
-                    locked_by=old_lock.locked_by,
-                    note=old_lock.note,
-                )
-                db.add(new_lock)
 
         await db.commit()
     except Exception:
@@ -1804,6 +3132,7 @@ def _serialize_schedule_item(item: ProductionScheduleItem) -> ProductionSchedule
     work_order = operation.work_order
     part = operation.part
     center = operation.work_center
+    allocations = sorted(item.personnel_allocations, key=lambda row: (row.person.name, row.person_id))
     return ProductionScheduleItemRead(
         id=item.id,
         schedule_id=item.schedule_id,
@@ -1816,6 +3145,11 @@ def _serialize_schedule_item(item: ProductionScheduleItem) -> ProductionSchedule
         end_time=item.end_time,
         sequence_on_resource=item.sequence_on_resource,
         is_external=item.is_external,
+        external_status=item.external_status,
+        external_sent_at=item.external_sent_at,
+        external_returned_at=item.external_returned_at,
+        external_expected_return_at=item.external_expected_return_at,
+        external_note=item.external_note,
         locked=item.locked,
         scheduled_duration_hours=scheduled_work_hours(item.start_time, item.end_time),
         order_no=work_order.order_no,
@@ -1825,33 +3159,54 @@ def _serialize_schedule_item(item: ProductionScheduleItem) -> ProductionSchedule
         drawing_no=part.drawing_no,
         part_name=part.name,
         operation_name=operation.name,
+        requirement_note=operation.requirement_note,
         work_center_name=center.name,
         machine_name=item.machine.name if item.machine else None,
         machine_code=item.machine.code if item.machine else None,
+        allocations=[_serialize_allocation(allocation) for allocation in allocations],
     )
 
 
 def _build_result(schedule: ProductionSchedule, items: list[ProductionScheduleItem]) -> ProductionSchedulingResult:
-    serialized = [_serialize_schedule_item(item) for item in items]
+    serialized = [
+        _serialize_schedule_item(item)
+        for item in items
+        if not is_monitor_hidden_schedule_item(item)
+    ]
     load_map: dict[str, dict] = {}
     order_end_map: dict[int, dict] = {}
 
     for item in serialized:
-        key = f"{item.work_center_id}:{item.machine_id or 'external'}"
-        load = load_map.setdefault(
-            key,
-            {
-                "work_center_id": item.work_center_id,
-                "work_center_name": item.work_center_name,
-                "machine_id": item.machine_id,
-                "machine_name": item.machine_name or "外协",
-                "task_count": 0,
-                "hours": 0.0,
-                "is_external": item.is_external,
-            },
-        )
-        load["task_count"] += 1
-        load["hours"] += item.scheduled_duration_hours
+        if item.is_external or not item.allocations:
+            load_entries = [(f"{item.work_center_id}:external", None, "外协", item.scheduled_duration_hours)]
+        else:
+            load_entries = [
+                (
+                    f"{item.work_center_id}:person:{allocation.person_id}",
+                    allocation.person_id,
+                    allocation.person_name,
+                    round(allocation.planned_minutes / 60, 3),
+                )
+                for allocation in item.allocations
+            ]
+        for key, person_id, person_name, hours in load_entries:
+            load = load_map.setdefault(
+                key,
+                {
+                    "work_center_id": item.work_center_id,
+                    "work_center_name": item.work_center_name,
+                    "machine_id": item.machine_id,
+                    "machine_name": item.machine_name,
+                    "person_id": person_id,
+                    "person_name": person_name,
+                    "resource_name": person_name,
+                    "task_count": 0,
+                    "hours": 0.0,
+                    "is_external": item.is_external,
+                },
+            )
+            load["task_count"] += 1
+            load["hours"] += hours
 
         current = order_end_map.get(item.work_order_id)
         if current is None or item.end_time > current["end_time"]:
@@ -1913,6 +3268,150 @@ async def get_production_schedule_result(db: AsyncSession, schedule_id: int) -> 
     return _build_result(schedule, list(item_result.scalars().all()))
 
 
+def _external_task_row(item: ProductionScheduleItem) -> ExternalTaskRow:
+    operation = item.operation
+    part = operation.part
+    work_order = operation.work_order
+    center = operation.work_center
+    return ExternalTaskRow(
+        schedule_item_id=item.id,
+        schedule_id=item.schedule_id,
+        operation_id=item.operation_id,
+        work_order_id=item.work_order_id,
+        work_center_id=item.work_center_id,
+        order_no=work_order.order_no,
+        customer=work_order.customer,
+        drawing_no=part.drawing_no,
+        part_no=part.no,
+        part_name=part.name,
+        operation_name=operation.name,
+        requirement_note=operation.requirement_note,
+        work_center_name=center.name,
+        vendor_name=center.external_vendor_name,
+        external_capacity_slots=_external_slot_count(center),
+        planned_send_at=item.start_time,
+        expected_return_at=item.external_expected_return_at or item.end_time,
+        planned_duration_hours=scheduled_work_hours(item.start_time, item.end_time),
+        external_status=item.external_status or "pending",
+        external_sent_at=item.external_sent_at,
+        external_returned_at=item.external_returned_at,
+        external_note=item.external_note,
+    )
+
+
+async def get_external_tasks(
+    db: AsyncSession,
+    schedule_id: int | None = None,
+    work_center_id: int | None = None,
+    external_status: str | None = None,
+    order_no: str | None = None,
+) -> ExternalTaskListResponse:
+    if schedule_id is None:
+        result = await db.execute(select(ProductionSchedule).order_by(ProductionSchedule.created_at.desc()))
+        schedule = result.scalars().first()
+    else:
+        schedule = await db.get(ProductionSchedule, schedule_id)
+    if schedule is None:
+        raise ValueError("暂无排产方案，请先执行生产排产。")
+
+    query = (
+        select(ProductionScheduleItem)
+        .where(
+            ProductionScheduleItem.schedule_id == schedule.id,
+            ProductionScheduleItem.is_external == True,
+        )
+        .options(
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.schedule),
+        )
+        .order_by(ProductionScheduleItem.start_time, ProductionScheduleItem.id)
+    )
+    if work_center_id:
+        query = query.where(ProductionScheduleItem.work_center_id == work_center_id)
+    if external_status:
+        query = query.where(ProductionScheduleItem.external_status == external_status)
+    if order_no:
+        query = (
+            query.join(ProductionOperation, ProductionScheduleItem.operation_id == ProductionOperation.id)
+            .join(WorkOrder, ProductionOperation.work_order_id == WorkOrder.id)
+            .where(WorkOrder.order_no.like(f"%{order_no}%"))
+        )
+
+    result = await db.execute(query)
+    return ExternalTaskListResponse(
+        schedule=schedule,
+        tasks=[_external_task_row(item) for item in result.scalars().all()],
+    )
+
+
+async def update_external_task(
+    db: AsyncSession,
+    schedule_item_id: int,
+    payload: ExternalTaskUpdate,
+) -> ExternalTaskUpdateResponse:
+    item = await db.get(
+        ProductionScheduleItem,
+        schedule_item_id,
+        options=[
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.schedule),
+        ],
+    )
+    if item is None or not item.is_external:
+        raise ValueError("外协任务不存在。")
+
+    update_data = payload.model_dump(exclude_unset=True)
+    valid_statuses = {"pending", "sent", "returned", "exception"}
+    status = update_data.get("external_status")
+    if status is not None and status not in valid_statuses:
+        raise ValueError("外协状态只能是 pending、sent、returned、exception。")
+
+    now = datetime.utcnow()
+    if "external_status" in update_data:
+        item.external_status = status or "pending"
+        if item.external_status == "sent" and item.external_sent_at is None:
+            item.external_sent_at = now
+        if item.external_status == "returned" and item.external_returned_at is None:
+            item.external_returned_at = now
+
+    for field in ("external_sent_at", "external_returned_at", "external_expected_return_at", "external_note"):
+        if field in update_data:
+            setattr(item, field, update_data[field])
+
+    if "external_expected_return_at" in update_data and "external_status" not in update_data:
+        item.external_status = "sent"
+        if item.external_sent_at is None:
+            item.external_sent_at = now
+
+    if item.external_status == "returned" and item.external_returned_at:
+        item.external_expected_return_at = item.external_returned_at
+        item.end_time = item.external_returned_at
+    elif item.external_expected_return_at:
+        item.end_time = item.external_expected_return_at
+
+    recalculated_count = await _recalculate_schedule_from_item(db, schedule_item_id)
+    await db.commit()
+    refreshed = await db.get(
+        ProductionScheduleItem,
+        schedule_item_id,
+        options=[
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_order),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.part),
+            selectinload(ProductionScheduleItem.operation).selectinload(ProductionOperation.work_center),
+            selectinload(ProductionScheduleItem.schedule),
+        ],
+    )
+    return ExternalTaskUpdateResponse(
+        schedule=refreshed.schedule,
+        task=_external_task_row(refreshed),
+        recalculated_item_count=recalculated_count,
+    )
+
+
 async def get_production_gantt_data(db: AsyncSession, schedule_id: int | None = None) -> list[dict]:
     if schedule_id:
         result = await get_production_schedule_result(db, schedule_id)
@@ -1923,21 +3422,37 @@ async def get_production_gantt_data(db: AsyncSession, schedule_id: int | None = 
 
     lanes: dict[str, dict] = {}
     for item in result.items:
-        key = f"{item.work_center_id}:{item.machine_id or 'external'}"
-        lane = lanes.setdefault(
-            key,
-            {
-                "work_center_id": item.work_center_id,
-                "work_center_name": item.work_center_name,
-                "machine_id": item.machine_id,
-                "machine_name": item.machine_name,
-                "machine_code": item.machine_code,
-                "is_external": item.is_external,
-                "tasks": [],
-            },
-        )
-        lane["tasks"].append(
-            {
+        if item.work_center_name in MONITOR_HIDDEN_WORK_CENTERS or item.operation_name in MONITOR_HIDDEN_WORK_CENTERS:
+            continue
+        if item.is_external or not item.allocations:
+            lane_entries = [(f"external:{item.work_center_id}", None, None, item.scheduled_duration_hours)]
+        else:
+            lane_entries = [
+                (
+                    f"person:{allocation.person_id}",
+                    allocation.person_id,
+                    allocation.person_name,
+                    round(allocation.planned_minutes / 60, 3),
+                )
+                for allocation in item.allocations
+            ]
+        for key, person_id, person_name, duration_hours in lane_entries:
+            lane = lanes.setdefault(
+                key,
+                {
+                    "resource_key": key,
+                    "work_center_id": item.work_center_id,
+                    "work_center_name": item.work_center_name,
+                    "machine_id": item.machine_id,
+                    "machine_name": item.machine_name,
+                    "machine_code": item.machine_code,
+                    "person_id": person_id,
+                    "person_name": person_name,
+                    "is_external": item.is_external,
+                    "tasks": [],
+                },
+            )
+            lane["tasks"].append({
                 "schedule_item_id": item.id,
                 "operation_id": item.operation_id,
                 "work_order_id": item.work_order_id,
@@ -1949,11 +3464,12 @@ async def get_production_gantt_data(db: AsyncSession, schedule_id: int | None = 
                 "work_center_name": item.work_center_name,
                 "start_time": item.start_time,
                 "end_time": item.end_time,
-                "scheduled_duration_hours": scheduled_work_hours(item.start_time, item.end_time),
+                "scheduled_duration_hours": duration_hours,
                 "sequence_on_machine": item.sequence_on_resource,
                 "is_external": item.is_external,
-            }
-        )
+                "person_id": person_id,
+                "person_name": person_name,
+            })
     return list(lanes.values())
 
 
@@ -2034,7 +3550,11 @@ async def get_schedule_board(
             ProductionScheduleItem.sequence_on_resource,
         )
     )
-    items = list(result.scalars().all())
+    items = [
+        item
+        for item in result.scalars().all()
+        if not is_monitor_hidden_schedule_item(item)
+    ]
 
     if work_center:
         if work_center.isdigit():
@@ -2119,6 +3639,7 @@ async def get_schedule_board(
                     part_no=part.no,
                     part_name=part.name,
                     customer_name=work_order.customer,
+                    requirement_note=operation.requirement_note,
                     quantity=part.quantity,
                     duration_hours=round(scheduled_work_hours(item.start_time, item.end_time) * ratio, 2),
                     due_date=work_order.due_date,

@@ -49,17 +49,14 @@ export default function OrderLockTable({
             订单详情
           </Link>
           {onDeleteOrder ? (
-            <details className="row-more">
-              <summary>更多</summary>
-              <button
-                className="text-danger-action"
-                type="button"
-                disabled={deletingOrderId === order.work_order_id}
-                onClick={() => onDeleteOrder(order)}
-              >
-                {deletingOrderId === order.work_order_id ? "删除中..." : "删除订单"}
-              </button>
-            </details>
+            <button
+              className="text-danger-action"
+              type="button"
+              disabled={deletingOrderId === order.work_order_id}
+              onClick={() => onDeleteOrder(order)}
+            >
+              {deletingOrderId === order.work_order_id ? "删除中..." : "删除订单"}
+            </button>
           ) : null}
         </div>
       </td>

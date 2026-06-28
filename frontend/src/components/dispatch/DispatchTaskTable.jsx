@@ -32,7 +32,7 @@ export default function DispatchTaskTable({
   tasks = [],
 }) {
   return (
-    <div className="panel">
+    <div className="panel dispatch-task-panel">
       <div className="panel-header">
         <div>
           <h3 className="panel-title">任务列表</h3>
@@ -68,6 +68,11 @@ export default function DispatchTaskTable({
                   <td>
                     <p className="data-primary">{task.order_no} / {task.operation_name}</p>
                     <p className="data-secondary">{task.drawing_no} / {task.part_name}</p>
+                    {task.requirement_note ? (
+                      <StatusBadge tone="warning" title={task.requirement_note}>
+                        加工要求
+                      </StatusBadge>
+                    ) : null}
                   </td>
                   <td>
                     <p className="data-primary">{task.work_center_name}</p>

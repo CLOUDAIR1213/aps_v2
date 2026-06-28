@@ -16,7 +16,7 @@ export default function GanttChart({ data = [] }) {
           {"\u6682\u65e0\u7518\u7279\u56fe\u6570\u636e"}
         </h3>
         <p className="empty-state-copy">
-          {"\u5f53\u524d\u6ca1\u6709\u53ef\u7528\u7684\u673a\u53f0\u6392\u4ea7\u7ed3\u679c\u3002"}
+          {"当前没有可用的排产结果。"}
         </p>
       </div>
     );
@@ -52,15 +52,16 @@ export default function GanttChart({ data = [] }) {
         </div>
 
         {data.map((machine, machineIndex) => {
-          const resourceName = machine.machine_name || machine.work_center_name || machine.machine_code || "--";
-          const resourceCode = machine.machine_code || (machine.is_external ? "外协" : "--");
+          const laneKey = machine.resource_key || machine.person_id || machine.machine_id || `${machine.work_center_id}-${machineIndex}`;
+          const resourceName = machine.person_name || machine.machine_name || machine.work_center_name || machine.machine_code || "--";
+          const resourceCode = machine.person_id ? machine.work_center_name : (machine.machine_code || (machine.is_external ? "外协" : "--"));
           const machineHours = machine.tasks.reduce(
             (sum, task) => sum + Number(task.scheduled_duration_hours ?? getDurationHours(task.start_time, task.end_time)),
             0
           );
 
           return (
-            <div key={machine.machine_id} className="machine-lane">
+            <div key={laneKey} className="machine-lane">
               <div className="machine-meta">
                 <div>
                   <h3 className="machine-name">
@@ -79,7 +80,7 @@ export default function GanttChart({ data = [] }) {
               <div className="gantt-lane">
                 {ticks.slice(1, ticks.length - 1).map((tick) => (
                   <span
-                    key={`${machine.machine_id}-${tick.offset}`}
+                    key={`${laneKey}-${tick.offset}`}
                     className="gantt-gridline"
                     style={{ left: `${tick.offset}%` }}
                   />

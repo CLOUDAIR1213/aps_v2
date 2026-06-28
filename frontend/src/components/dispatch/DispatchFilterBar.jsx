@@ -10,9 +10,9 @@ export default function DispatchFilterBar({
   workCenters = [],
 }) {
   return (
-    <form className="form-grid" onSubmit={onSubmit}>
-      <label className="field-label">
-        工单
+    <form className="table-toolbar dispatch-filter-toolbar" onSubmit={onSubmit}>
+      <label className="toolbar-field">
+        <span>工单</span>
         <select
           className="field-input"
           value={filters.work_order_id}
@@ -24,8 +24,8 @@ export default function DispatchFilterBar({
           ))}
         </select>
       </label>
-      <label className="field-label">
-        工段
+      <label className="toolbar-field">
+        <span>工段</span>
         <select
           className="field-input"
           value={filters.work_center_id}
@@ -37,8 +37,8 @@ export default function DispatchFilterBar({
           ))}
         </select>
       </label>
-      <label className="field-label">
-        人员
+      <label className="toolbar-field">
+        <span>人员</span>
         <select
           className="field-input"
           value={filters.person_id}
@@ -50,8 +50,8 @@ export default function DispatchFilterBar({
           ))}
         </select>
       </label>
-      <label className="field-label">
-        派工状态
+      <label className="toolbar-field">
+        <span>派工状态</span>
         <select
           className="field-input"
           value={filters.allocation_status}
@@ -62,8 +62,8 @@ export default function DispatchFilterBar({
           <option value="assigned">已派工</option>
         </select>
       </label>
-      <label className="field-label">
-        搜索
+      <label className="toolbar-field">
+        <span>搜索</span>
         <input
           className="field-input"
           value={query}
@@ -71,7 +71,7 @@ export default function DispatchFilterBar({
           placeholder="订单、零件、工序、人员"
         />
       </label>
-      <div className="form-actions">
+      <div className="toolbar-actions">
         <button className="button" type="submit" disabled={loading}>
           {loading ? "加载中..." : "刷新"}
         </button>

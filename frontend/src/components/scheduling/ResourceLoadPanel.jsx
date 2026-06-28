@@ -32,7 +32,7 @@ export default function ResourceLoadPanel({ resources = [] }) {
       </div>
       <div className="resource-load-list compact-resource-load">
         {resources.map((resource) => (
-          <div className="resource-load-row" key={`${resource.work_center_id}-${resource.machine_id || "external"}`}>
+          <div className="resource-load-row" key={`${resource.work_center_id}-${resource.person_id || resource.machine_id || "external"}`}>
             <div className="resource-load-head">
               <div>
                 <p className="data-primary">{resource.work_center_name}</p>
@@ -46,6 +46,11 @@ export default function ResourceLoadPanel({ resources = [] }) {
             <p className="data-secondary">
               {`${formatPercent(resource.utilization * 100)} / ${resource.busy_minutes} 分钟占用 / ${resource.available_minutes} 分钟可用`}
             </p>
+            {resource.is_external ? (
+              <p className="data-secondary">
+                {`${resource.external_capacity_slots || 1} 并发 / ${resource.task_count || 0} 个外协任务`}
+              </p>
+            ) : null}
           </div>
         ))}
       </div>

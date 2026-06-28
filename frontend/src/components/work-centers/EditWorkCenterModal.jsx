@@ -11,9 +11,9 @@ export default function EditWorkCenterModal({
         <div className="panel-header">
           <h3 className="panel-title">编辑工段</h3>
         </div>
-        <div className="form-grid">
-          <label className="field-label">
-            工段名称
+        <div className="modal-form-grid">
+          <label className="toolbar-field">
+            <span>工段名称</span>
             <input
               className="field-input"
               value={editForm.name}
@@ -21,8 +21,8 @@ export default function EditWorkCenterModal({
               required
             />
           </label>
-          <label className="field-label">
-            工段编码
+          <label className="toolbar-field">
+            <span>工段编码</span>
             <input
               className="field-input"
               value={editForm.code}
@@ -30,8 +30,8 @@ export default function EditWorkCenterModal({
               required
             />
           </label>
-          <label className="field-label">
-            日产能分钟
+          <label className="toolbar-field">
+            <span>日产能分钟</span>
             <input
               className="field-input"
               type="number"
@@ -39,8 +39,8 @@ export default function EditWorkCenterModal({
               onChange={(event) => onChange({ default_capacity_per_day: event.target.value })}
             />
           </label>
-          <label className="field-label">
-            默认外协周期小时
+          <label className="toolbar-field">
+            <span>默认外协周期小时</span>
             <input
               className="field-input"
               type="number"
@@ -48,8 +48,39 @@ export default function EditWorkCenterModal({
               onChange={(event) => onChange({ default_duration_hours: event.target.value })}
             />
           </label>
-          <label className="field-label">
-            说明
+          <label className="toolbar-field">
+            <span>外协并发能力</span>
+            <input
+              className="field-input"
+              type="number"
+              min="1"
+              disabled={!editForm.is_external}
+              value={editForm.external_capacity_slots}
+              onChange={(event) => onChange({ external_capacity_slots: event.target.value })}
+            />
+          </label>
+          <label className="toolbar-field">
+            <span>供应商</span>
+            <input
+              className="field-input"
+              disabled={!editForm.is_external}
+              value={editForm.external_vendor_name}
+              onChange={(event) => onChange({ external_vendor_name: event.target.value })}
+            />
+          </label>
+          <label className="toolbar-field">
+            <span>外协周期覆盖</span>
+            <input
+              className="field-input"
+              type="number"
+              disabled={!editForm.is_external}
+              value={editForm.external_lead_time_hours}
+              onChange={(event) => onChange({ external_lead_time_hours: event.target.value })}
+              placeholder="默认使用上方周期"
+            />
+          </label>
+          <label className="toolbar-field">
+            <span>说明</span>
             <input
               className="field-input"
               value={editForm.description}

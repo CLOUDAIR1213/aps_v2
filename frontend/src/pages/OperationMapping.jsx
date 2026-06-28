@@ -8,7 +8,7 @@ import {
   getWorkCenters,
   createWorkCenter,
 } from "../api/production";
-import SummaryCards from "../components/SummaryCards";
+import CompactSummaryStrip from "../components/common/CompactSummaryStrip";
 import StatusBadge from "../components/StatusBadge";
 
 export default function OperationMapping() {
@@ -173,9 +173,9 @@ export default function OperationMapping() {
 
   return (
     <section className="page-grid">
-      <SummaryCards cards={cards} loading={loading} />
+      <CompactSummaryStrip className="master-data-summary-strip" items={cards} loading={loading} />
 
-      <div className="panel">
+      <div className="panel compact-page-panel">
         <div className="panel-header">
           <div>
             <h3 className="panel-title">{editingRule ? "编辑映射规则" : "新增映射规则"}</h3>
@@ -191,9 +191,9 @@ export default function OperationMapping() {
         </div>
 
         {showForm && (
-          <form className="form-grid" onSubmit={handleSubmit}>
-            <label className="field-label">
-              Excel 列名（源名称）
+          <form className="table-toolbar operation-mapping-toolbar" onSubmit={handleSubmit}>
+            <label className="toolbar-field">
+              <span>Excel 列名（源名称）</span>
               <input
                 className="field-input"
                 value={form.source_name}
@@ -203,8 +203,8 @@ export default function OperationMapping() {
                 disabled={!!editingRule}
               />
             </label>
-            <label className="field-label">
-              标准化名称
+            <label className="toolbar-field">
+              <span>标准化名称</span>
               <input
                 className="field-input"
                 value={form.normalized_name}
@@ -213,8 +213,8 @@ export default function OperationMapping() {
                 required
               />
             </label>
-            <label className="field-label">
-              目标工段
+            <label className="toolbar-field mapping-target-field">
+              <span>目标工段</span>
               <select
                 className="field-input"
                 value={form.work_center_id}
@@ -289,8 +289,8 @@ export default function OperationMapping() {
                 </div>
               )}
             </label>
-            <label className="field-label">
-              状态
+            <label className="toolbar-field">
+              <span>状态</span>
               <select
                 className="field-input"
                 value={form.status}
@@ -300,7 +300,7 @@ export default function OperationMapping() {
                 <option value="disabled">禁用</option>
               </select>
             </label>
-            <div className="form-actions">
+            <div className="toolbar-actions">
               <button className="button" type="submit" disabled={submitting}>
                 {submitting ? "保存中..." : editingRule ? "更新规则" : "创建规则"}
               </button>

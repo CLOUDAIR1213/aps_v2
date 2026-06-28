@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
-import { getOrderScheduleDetail } from "../api/production";
+import { getOrderScheduleDetail, updateOperationRequirementNote } from "../api/production";
 import StatusBadge from "../components/StatusBadge";
 import { formatDate, formatDateTime, formatHours, getDurationHours } from "../utils/formatters";
 import { buildScheduleBoardPath, buildSchedulePath } from "../utils/scheduleContext";
@@ -113,6 +113,8 @@ export default function OrderScheduleDetail() {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [requirementDrafts, setRequirementDrafts] = useState({});
+  const [savingRequirementId, setSavingRequirementId] = useState(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -128,6 +130,20 @@ export default function OrderScheduleDetail() {
     };
     loadData();
   }, [workOrderId, scheduleId]);
+
+  useEffect(() => {
+    if (!detail) {
+      setRequirementDrafts({});
+      return;
+    }
+    const drafts = {};
+    detail.parts?.forEach((part) => {
+      part.operations?.forEach((operation) => {
+        drafts[operation.operation_id] = operation.requirement_note || "";
+      });
+    });
+    setRequirementDrafts(drafts);
+  }, [detail]);
 
   const operations = useMemo(() => {
     const flattened = (detail?.parts || []).flatMap((part) =>
@@ -176,6 +192,31 @@ export default function OrderScheduleDetail() {
     });
     return nearDueOperations.length ? nearDueOperations.slice(-3) : [lastOperation];
   }, [detail, lastOperation, operations]);
+
+  const handleRequirementSave = async (operationId) => {
+    setSavingRequirementId(operationId);
+    setError("");
+    try {
+      const result = await updateOperationRequirementNote(operationId, {
+        requirement_note: requirementDrafts[operationId] || null
+      });
+      setDetail((current) => ({
+        ...current,
+        parts: current.parts.map((part) => ({
+          ...part,
+          operations: part.operations.map((operation) => (
+            operation.operation_id === operationId
+              ? { ...operation, requirement_note: result.requirement_note || "" }
+              : operation
+          ))
+        }))
+      }));
+    } catch (requestError) {
+      setError(requestError?.response?.data?.detail || "加工要求保存失败。");
+    } finally {
+      setSavingRequirementId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -333,6 +374,7 @@ export default function OrderScheduleDetail() {
                   <th>序号</th>
                   <th>零件</th>
                   <th>工序</th>
+                  <th>加工要求</th>
                   <th>资源</th>
                   <th>派工</th>
                   <th>时间窗口</th>
@@ -351,6 +393,26 @@ export default function OrderScheduleDetail() {
                       <p className="data-secondary">{operation.part_name}</p>
                     </td>
                     <td>{operation.operation_name}</td>
+                    <td>
+                      <textarea
+                        className="field-input table-input"
+                        rows={2}
+                        value={requirementDrafts[operation.operation_id] ?? ""}
+                        placeholder="无加工要求"
+                        onChange={(event) => setRequirementDrafts((current) => ({
+                          ...current,
+                          [operation.operation_id]: event.target.value
+                        }))}
+                      />
+                      <button
+                        className="button small ghost"
+                        type="button"
+                        disabled={savingRequirementId === operation.operation_id}
+                        onClick={() => handleRequirementSave(operation.operation_id)}
+                      >
+                        {savingRequirementId === operation.operation_id ? "保存中..." : "保存要求"}
+                      </button>
+                    </td>
                     <td>
                       <p className="data-primary">{operation.work_center_name}</p>
                       <p className="data-secondary">{operation.machine_name || "外协"}</p>

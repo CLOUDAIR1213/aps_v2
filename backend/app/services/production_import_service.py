@@ -16,7 +16,21 @@ from app.schemas.production import (
 
 PRIMARY_SHEET = "焊接件明细"
 BASE_COLUMNS = 11
-IGNORED_OPERATION_HEADERS = {"", "备注", "备注1", "flag", "计划日期", "完工日期"}
+BASE_COLUMN_HEADERS = {
+    "NO",
+    "图号",
+    "名称",
+    "材料厚",
+    "材料长",
+    "材料宽",
+    "产品数量(件)",
+    "材料",
+    "单料重",
+    "材料总重",
+    "材料费",
+}
+NOTE_HEADERS = {"备注", "备注1", "工艺备注", "加工要求", "工艺要求", "关键尺寸/备注"}
+IGNORED_OPERATION_HEADERS = {"", *NOTE_HEADERS, "flag", "计划日期", "完工日期"}
 EXTERNAL_WORK_CENTERS = {"钣金外", "加工外", "表面处理"}
 
 
@@ -42,8 +56,11 @@ def _to_float(value: Any) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value)
+    text = str(value).strip()
+    if "," in text and "." not in text:
+        text = text.replace(",", ".")
     try:
-        return float(str(value).strip())
+        return float(text)
     except ValueError:
         return None
 
@@ -97,9 +114,14 @@ async def parse_work_order_workbook(
     sheet = workbook[PRIMARY_SHEET]
     headers = [_to_text(sheet.cell(1, col).value) for col in range(1, sheet.max_column + 1)]
     operation_columns: list[tuple[int, str, int]] = []
+    note_columns: list[int] = []
 
     for col_idx, header in enumerate(headers, start=1):
+        if header in NOTE_HEADERS:
+            note_columns.append(col_idx)
         if col_idx <= BASE_COLUMNS or header in IGNORED_OPERATION_HEADERS:
+            continue
+        if header in BASE_COLUMN_HEADERS:
             continue
         operation_columns.append((col_idx, header, len(operation_columns) + 1))
         if header not in mapping_rules:
@@ -116,6 +138,8 @@ async def parse_work_order_workbook(
     operations: list[ImportOperationPreview] = []
     part_operation_counts: dict[str, int] = {}
     part_hours: dict[str, float] = {}
+    external_blank_skipped_count = 0
+    external_default_duration_count = 0
 
     for row_idx in range(2, sheet.max_row + 1):
         no = _to_text(sheet.cell(row_idx, 1).value)
@@ -148,6 +172,12 @@ async def parse_work_order_workbook(
             continue
 
         is_assembly = _is_assembly_no(no)
+        row_notes = [
+            _to_text(sheet.cell(row_idx, col_idx).value)
+            for col_idx in note_columns
+            if _to_text(sheet.cell(row_idx, col_idx).value)
+        ]
+        requirement_note = "\n".join(row_notes) or None
 
         part = ImportPartPreview(
             no=no,
@@ -155,6 +185,7 @@ async def parse_work_order_workbook(
             name=name or drawing_no,
             parent_no=get_parent_no(no),
             material=_to_text(sheet.cell(row_idx, 8).value) or None,
+            note=requirement_note,
             quantity=_to_int(sheet.cell(row_idx, 7).value, 1),
             source_row=row_idx,
             is_assembly=is_assembly,
@@ -168,41 +199,63 @@ async def parse_work_order_workbook(
 
         for col_idx, header, seq_no in operation_columns:
             raw_value = sheet.cell(row_idx, col_idx).value
+            raw_text = _to_text(raw_value)
             is_external = mapping_rules.get(header, {}).get("is_external", header in EXTERNAL_WORK_CENTERS)
 
-            if raw_value in (None, ""):
-                # External mapped columns: use default duration from work center config
-                if is_external and header in mapping_rules:
-                    default_h = mapping_rules[header].get("default_duration_hours")
-                    if default_h and default_h > 0:
-                        operations.append(
-                            ImportOperationPreview(
-                                part_no=no,
-                                drawing_no=drawing_no,
-                                part_name=name or drawing_no,
-                                work_center_name=header,
-                                seq_no=seq_no,
-                                duration_hours=round(default_h, 3),
-                                source_row=row_idx,
-                                source_col=col_idx,
-                                is_external=True,
-                                mapped=True,
-                            )
+            if raw_text == "":
+                if is_external:
+                    external_blank_skipped_count += 1
+                continue
+
+            duration = _to_float(raw_value)
+            if duration is None:
+                if is_external:
+                    default_h = None
+                    if header in mapping_rules:
+                        default_h = (
+                            mapping_rules[header].get("external_lead_time_hours")
+                            or mapping_rules[header].get("default_duration_hours")
                         )
-                        part_operation_counts[no] += 1
-                        part_hours[no] += default_h
+                    if default_h and default_h > 0:
+                        duration = float(default_h)
+                        external_default_duration_count += 1
                         issues.append(
                             ImportIssue(
                                 severity="info",
                                 row=row_idx,
                                 column=col_idx,
                                 field=header,
-                                message=f"{drawing_no} 的工序 '{header}' Excel 无工时，已使用工段默认工时 {default_h}h。",
+                                message=(
+                                    f"{drawing_no} 的外协工序 '{header}' 使用非数字标记 "
+                                    f"'{raw_text}'，已按默认周期 {default_h}h 生成任务。"
+                                ),
                             )
                         )
-                continue
-
-            duration = _to_float(raw_value)
+                    else:
+                        issues.append(
+                            ImportIssue(
+                                severity="warning",
+                                row=row_idx,
+                                column=col_idx,
+                                field="external_default_duration",
+                                message=(
+                                    f"{drawing_no} 的外协工序 '{header}' 使用非数字标记 "
+                                    f"'{raw_text}'，但工段没有默认外协周期，已跳过。"
+                                ),
+                            )
+                        )
+                        continue
+                else:
+                    issues.append(
+                        ImportIssue(
+                            severity="warning",
+                            row=row_idx,
+                            column=col_idx,
+                            field=header,
+                            message=f"{drawing_no} 的工序 '{header}' 工时不是数字，已跳过。",
+                        )
+                    )
+                    continue
             if duration is None:
                 issues.append(
                     ImportIssue(
@@ -225,6 +278,7 @@ async def parse_work_order_workbook(
                     work_center_name=header,
                     seq_no=seq_no,
                     duration_hours=round(duration, 3),
+                    requirement_note=requirement_note,
                     source_row=row_idx,
                     source_col=col_idx,
                     is_external=is_external,
@@ -291,6 +345,19 @@ async def parse_work_order_workbook(
             sum(op.duration_hours * max(part_quantity_by_no.get(op.part_no, 1), 1) for op in operations),
             3,
         ),
+        "external_task_count": len([op for op in operations if op.is_external]),
+        "external_total_hours": round(sum(op.duration_hours for op in operations if op.is_external), 3),
+        "external_total_capacity_hours": round(
+            sum(
+                op.duration_hours * max(part_quantity_by_no.get(op.part_no, 1), 1)
+                for op in operations
+                if op.is_external
+            ),
+            3,
+        ),
+        "external_blank_skipped_count": external_blank_skipped_count,
+        "external_default_duration_count": external_default_duration_count,
+        "note_count": len([part for part in parts if part.note]),
         "error_count": len([issue for issue in issues if issue.severity == "error"]),
         "warning_count": len([issue for issue in issues if issue.severity == "warning"]),
         "hierarchy": _hierarchy_summary(parts),

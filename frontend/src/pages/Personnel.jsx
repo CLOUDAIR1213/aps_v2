@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { deletePersonnel, getPersonnel, importPersonnel } from "../api/production";
-import SummaryCards from "../components/SummaryCards";
+import CompactSummaryStrip from "../components/common/CompactSummaryStrip";
 import StatusBadge from "../components/StatusBadge";
 
 const STATUS_LABELS = { active: "在职", disabled: "离职" };
@@ -118,18 +118,18 @@ export default function Personnel() {
 
   return (
     <section className="page-grid">
-      <SummaryCards cards={cards} loading={loading} />
+      <CompactSummaryStrip className="master-data-summary-strip" items={cards} loading={loading} />
 
-      <div className="panel">
+      <div className="panel compact-page-panel">
         <div className="panel-header">
           <div>
             <h3 className="panel-title">人员导入</h3>
             <p className="panel-subtitle">上传排班表 Excel 导入人员与工段关联。</p>
           </div>
         </div>
-        <form className="form-grid" onSubmit={handleImport}>
-          <label className="field-label">
-            排班表文件
+        <form className="table-toolbar personnel-import-toolbar" onSubmit={handleImport}>
+          <label className="toolbar-field">
+            <span>排班表文件</span>
             <input
               className="field-input"
               type="file"
@@ -137,7 +137,7 @@ export default function Personnel() {
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
           </label>
-          <div className="form-actions">
+          <div className="toolbar-actions">
             <button className="button" type="submit" disabled={importing || !file}>
               {importing ? "导入中..." : "导入人员"}
             </button>
@@ -155,9 +155,9 @@ export default function Personnel() {
           </div>
         </div>
 
-        <div className="form-grid" style={{ marginBottom: "1rem" }}>
-          <label className="field-label">
-            按工段筛选
+        <div className="table-toolbar personnel-filter-toolbar">
+          <label className="toolbar-field">
+            <span>按工段筛选</span>
             <select
               className="field-input"
               value={filterCenter}
@@ -169,8 +169,8 @@ export default function Personnel() {
               ))}
             </select>
           </label>
-          <label className="field-label">
-            搜索姓名/工号
+          <label className="toolbar-field">
+            <span>搜索姓名/工号</span>
             <input
               className="field-input"
               value={filterKeyword}

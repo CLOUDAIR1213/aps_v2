@@ -58,6 +58,11 @@ export const getProductionOperations = async () => {
   return response.data;
 };
 
+export const updateOperationRequirementNote = async (operationId, payload) => {
+  const response = await apiClient.patch(`/api/production/operations/${operationId}`, payload);
+  return response.data;
+};
+
 export const runProductionScheduling = async (payload = {}) => {
   const response = await apiClient.post("/api/production/scheduling/run", payload);
   return response.data;
@@ -111,6 +116,40 @@ export const getScheduleDispatch = async (scheduleId, params = {}) => {
   return response.data;
 };
 
+export const getWorkOrderTickets = async (scheduleId, params = {}) => {
+  const response = await apiClient.get(
+    `/api/production/scheduling/schedules/${scheduleId}/work-order-tickets`,
+    { params },
+  );
+  return response.data;
+};
+
+export const exportWorkOrderTickets = async (scheduleId, params = {}) => {
+  const response = await apiClient.get(
+    `/api/production/scheduling/schedules/${scheduleId}/work-order-tickets/export`,
+    { params, responseType: "blob" },
+  );
+  return response;
+};
+
+export const exportConstructionSheets = async (scheduleId, params = {}) => {
+  const response = await apiClient.get(
+    `/api/production/scheduling/schedules/${scheduleId}/construction-sheets/export`,
+    { params, responseType: "blob" },
+  );
+  return response;
+};
+
+export const getExternalTasks = async (params = {}) => {
+  const response = await apiClient.get("/api/production/external-tasks", { params });
+  return response.data;
+};
+
+export const updateExternalTask = async (scheduleItemId, payload) => {
+  const response = await apiClient.patch(`/api/production/external-tasks/${scheduleItemId}`, payload);
+  return response.data;
+};
+
 export const saveScheduleItemPersonnelAllocations = async (scheduleItemId, payload) => {
   const response = await apiClient.put(
     `/api/production/scheduling/schedule-items/${scheduleItemId}/personnel-allocations`,
@@ -119,9 +158,41 @@ export const saveScheduleItemPersonnelAllocations = async (scheduleItemId, paylo
   return response.data;
 };
 
+export const saveBatchScheduleItemPersonnelAllocations = async (scheduleId, payload) => {
+  const response = await apiClient.put(
+    `/api/production/scheduling/schedules/${scheduleId}/dispatch/personnel-allocations/batch`,
+    payload,
+  );
+  return response.data;
+};
+
+export const previewDispatchAutoAssign = async (scheduleId, payload) => {
+  const response = await apiClient.post(
+    `/api/production/scheduling/schedules/${scheduleId}/dispatch/auto-assign/preview`,
+    payload,
+  );
+  return response.data;
+};
+
+export const applyDispatchAutoAssign = async (scheduleId, payload) => {
+  const response = await apiClient.post(
+    `/api/production/scheduling/schedules/${scheduleId}/dispatch/auto-assign/apply`,
+    payload,
+  );
+  return response.data;
+};
+
 export const getPersonnelWorkload = async (params = {}) => {
   const response = await apiClient.get("/api/personnel/workload", { params });
   return response.data;
+};
+
+export const exportPersonnelWorkload = async (scheduleId) => {
+  const response = await apiClient.get("/api/personnel/workload/export", {
+    params: { schedule_id: scheduleId },
+    responseType: "blob",
+  });
+  return response;
 };
 
 export const getResourceMachines = async () => {

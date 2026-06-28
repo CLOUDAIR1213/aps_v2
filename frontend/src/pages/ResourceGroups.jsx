@@ -10,7 +10,7 @@ import {
   getResourceMachines,
   getPersonnel,
 } from "../api/production";
-import SummaryCards from "../components/SummaryCards";
+import CompactSummaryStrip from "../components/common/CompactSummaryStrip";
 import StatusBadge from "../components/StatusBadge";
 
 const MEMBER_TYPE_LABELS = {
@@ -174,9 +174,9 @@ export default function ResourceGroups() {
 
   return (
     <section className="page-grid">
-      <SummaryCards cards={cards} loading={loading} />
+      <CompactSummaryStrip className="master-data-summary-strip" items={cards} loading={loading} />
 
-      <div className="panel">
+      <div className="panel compact-page-panel">
         <div className="panel-header">
           <div>
             <h3 className="panel-title">{editingGroup ? "编辑资源组" : "新增资源组"}</h3>
@@ -190,9 +190,9 @@ export default function ResourceGroups() {
         </div>
 
         {showForm && (
-          <form className="form-grid" onSubmit={handleSubmit}>
-            <label className="field-label">
-              资源组编码
+          <form className="table-toolbar resource-group-toolbar" onSubmit={handleSubmit}>
+            <label className="toolbar-field">
+              <span>资源组编码</span>
               <input
                 className="field-input"
                 value={form.code}
@@ -202,8 +202,8 @@ export default function ResourceGroups() {
                 disabled={!!editingGroup}
               />
             </label>
-            <label className="field-label">
-              资源组名称
+            <label className="toolbar-field">
+              <span>资源组名称</span>
               <input
                 className="field-input"
                 value={form.name}
@@ -211,8 +211,8 @@ export default function ResourceGroups() {
                 required
               />
             </label>
-            <label className="field-label">
-              说明
+            <label className="toolbar-field">
+              <span>说明</span>
               <input
                 className="field-input"
                 value={form.description}
@@ -220,8 +220,8 @@ export default function ResourceGroups() {
                 placeholder="可选备注"
               />
             </label>
-            <label className="field-label">
-              状态
+            <label className="toolbar-field">
+              <span>状态</span>
               <select
                 className="field-input"
                 value={form.status}
@@ -231,7 +231,7 @@ export default function ResourceGroups() {
                 <option value="disabled">禁用</option>
               </select>
             </label>
-            <div className="form-actions">
+            <div className="toolbar-actions">
               <button className="button" type="submit" disabled={submitting}>
                 {submitting ? "保存中..." : editingGroup ? "更新" : "创建"}
               </button>

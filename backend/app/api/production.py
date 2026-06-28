@@ -7,7 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.schemas.production import (
+    DispatchAutoAssignRequest,
+    DispatchAutoAssignResponse,
     DispatchResponse,
+    ExternalTaskListResponse,
+    ExternalTaskUpdate,
+    ExternalTaskUpdateResponse,
     ImportCommitRequest,
     ImportCommitResponse,
     ImportPreviewPayload,
@@ -19,12 +24,18 @@ from app.schemas.production import (
     OperationMappingRuleUpdate,
     OrderLockRead,
     OrderLockRequest,
+    PersonnelBatchAllocationRequest,
+    PersonnelBatchAllocationResponse,
     PersonnelAllocationRead,
+    PersonnelAllocationSaveResponse,
     PersonnelAllocationWrite,
     OrderScheduleDetail,
     PersonnelWorkloadResponse,
     PersonnelImportResponse,
     ProductionScheduleListResponse,
+    ProductionOperationRequirementRead,
+    ProductionOperationRequirementUpdate,
+    ProductionOperationRead,
     ProductionSchedulingOverview,
     ProductionSchedulingResult,
     ResourceGroupCreate,
@@ -43,6 +54,7 @@ from app.schemas.production import (
     WorkCenterRead,
     WorkCenterUpdate,
     WorkOrderRead,
+    WorkOrderTicketResponse,
 )
 from app.services.management_dashboard_service import (
     export_management_dashboard_to_excel,
@@ -70,8 +82,14 @@ from app.services.production_service import (
     delete_work_center,
     delete_work_order,
     disable_work_center,
+    export_construction_sheets_to_excel,
+    export_personnel_workload_to_excel,
     export_schedule_to_excel,
+    export_work_order_tickets_to_excel,
+    preview_auto_assign_dispatch,
+    apply_auto_assign_dispatch,
     get_dispatch_data,
+    get_external_tasks,
     get_latest_production_schedule_result,
     get_personnel_workload,
     get_production_gantt_data,
@@ -84,15 +102,19 @@ from app.services.production_service import (
     list_resource_groups,
     list_resource_machines,
     list_work_centers,
+    list_work_order_tickets,
     list_work_orders,
     lock_order_in_schedule,
     remove_resource_group_member,
     run_production_scheduling,
+    save_batch_personnel_allocations,
     save_personnel_allocations,
     normalize_schedule_datetime,
     unlock_order_in_schedule,
+    update_external_task,
     update_machine,
     update_operation_mapping_rule,
+    update_operation_requirement_note,
     update_resource_group,
     update_work_center,
 )
@@ -153,6 +175,7 @@ async def preview_work_order_import(file: UploadFile = File(...), db: AsyncSessi
                 "is_external": r.is_external,
                 "work_center_id": r.work_center_id,
                 "default_duration_hours": r.work_center.default_duration_hours if r.work_center else None,
+                "external_lead_time_hours": r.work_center.external_lead_time_hours if r.work_center else None,
             }
             for r in rules_result.scalars().all()
         }
@@ -183,9 +206,29 @@ async def delete_work_order_view(work_order_id: int, db: AsyncSession = Depends(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.get("/production/operations")
+@router.get("/production/operations", response_model=list[ProductionOperationRead])
 async def get_pending_production_operations(db: AsyncSession = Depends(get_db)):
     return await list_pending_operations(db)
+
+
+@router.patch(
+    "/production/operations/{operation_id}",
+    response_model=ProductionOperationRequirementRead,
+
+)
+async def patch_operation_requirement_note(
+    operation_id: int,
+    payload: ProductionOperationRequirementUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        operation = await update_operation_requirement_note(db, operation_id, payload.requirement_note)
+        return ProductionOperationRequirementRead(
+            operation_id=operation.id,
+            requirement_note=operation.requirement_note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/production/scheduling/run", response_model=ProductionSchedulingResult)
@@ -260,6 +303,42 @@ async def get_production_risks(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.get("/production/external-tasks", response_model=ExternalTaskListResponse)
+async def get_external_tasks_view(
+    schedule_id: int | None = None,
+    work_center_id: int | None = None,
+    external_status: str | None = None,
+    order_no: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await get_external_tasks(
+            db,
+            schedule_id=schedule_id,
+            work_center_id=work_center_id,
+            external_status=external_status,
+            order_no=order_no,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/production/external-tasks/{schedule_item_id}",
+    response_model=ExternalTaskUpdateResponse,
+
+)
+async def patch_external_task(
+    schedule_item_id: int,
+    payload: ExternalTaskUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await update_external_task(db, schedule_item_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/production/management-dashboard", response_model=ManagementDashboardResponse)
 async def get_management_dashboard_view(
     schedule_id: int | None = None,
@@ -284,7 +363,11 @@ async def get_management_dashboard_view(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.patch("/production/management-dashboard/issue-state", response_model=ManagementIssueStateRead)
+@router.patch(
+    "/production/management-dashboard/issue-state",
+    response_model=ManagementIssueStateRead,
+
+)
 async def patch_management_issue_state(
     payload: ManagementIssueStateUpdate,
     db: AsyncSession = Depends(get_db),
@@ -395,9 +478,93 @@ async def get_schedule_dispatch(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get(
+    "/production/scheduling/schedules/{schedule_id}/work-order-tickets",
+    response_model=WorkOrderTicketResponse,
+)
+async def get_work_order_tickets(
+    schedule_id: int,
+    work_order_id: int | None = None,
+    work_center_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    ticket_status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await list_work_order_tickets(
+            db,
+            schedule_id,
+            work_order_id=work_order_id,
+            work_center_id=work_center_id,
+            date_from=date_from,
+            date_to=date_to,
+            ticket_status=ticket_status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/production/scheduling/schedules/{schedule_id}/work-order-tickets/export")
+async def export_work_order_tickets(
+    schedule_id: int,
+    work_order_id: int | None = None,
+    work_center_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        content, filename = await export_work_order_tickets_to_excel(
+            db,
+            schedule_id,
+            work_order_id=work_order_id,
+            work_center_id=work_center_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        encoded = quote(filename)
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/production/scheduling/schedules/{schedule_id}/construction-sheets/export")
+async def export_construction_sheets(
+    schedule_id: int,
+    work_order_id: int | None = None,
+    work_center_id: int | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        content, filename = await export_construction_sheets_to_excel(
+            db,
+            schedule_id,
+            work_order_id=work_order_id,
+            work_center_id=work_center_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        encoded = quote(filename)
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.put(
     "/production/scheduling/schedule-items/{schedule_item_id}/personnel-allocations",
-    response_model=list[PersonnelAllocationRead],
+    response_model=PersonnelAllocationSaveResponse,
+
 )
 async def put_schedule_item_personnel_allocations(
     schedule_item_id: int,
@@ -410,10 +577,72 @@ async def put_schedule_item_personnel_allocations(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.put(
+    "/production/scheduling/schedules/{schedule_id}/dispatch/personnel-allocations/batch",
+    response_model=PersonnelBatchAllocationResponse,
+
+)
+async def put_batch_schedule_item_personnel_allocations(
+    schedule_id: int,
+    payload: PersonnelBatchAllocationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await save_batch_personnel_allocations(db, schedule_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/production/scheduling/schedules/{schedule_id}/dispatch/auto-assign/preview",
+    response_model=DispatchAutoAssignResponse,
+
+)
+async def preview_dispatch_auto_assign(
+    schedule_id: int,
+    payload: DispatchAutoAssignRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await preview_auto_assign_dispatch(db, schedule_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/production/scheduling/schedules/{schedule_id}/dispatch/auto-assign/apply",
+    response_model=DispatchAutoAssignResponse,
+
+)
+async def apply_dispatch_auto_assign(
+    schedule_id: int,
+    payload: DispatchAutoAssignRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        return await apply_auto_assign_dispatch(db, schedule_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.get("/personnel/workload", response_model=PersonnelWorkloadResponse)
-async def get_personnel_workload_view(schedule_id: int, db: AsyncSession = Depends(get_db)):
+async def get_personnel_workload_view(schedule_id: int | None = None, db: AsyncSession = Depends(get_db)):
     try:
         return await get_personnel_workload(db, schedule_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/personnel/workload/export")
+async def export_personnel_workload(schedule_id: int, db: AsyncSession = Depends(get_db)):
+    try:
+        content, filename = await export_personnel_workload_to_excel(db, schedule_id)
+        encoded = quote(filename)
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{encoded}"},
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -430,7 +659,11 @@ async def put_work_center(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.patch("/work-centers/{work_center_id}/disable", response_model=WorkCenterRead)
+@router.patch(
+    "/work-centers/{work_center_id}/disable",
+    response_model=WorkCenterRead,
+
+)
 async def patch_disable_work_center(work_center_id: int, db: AsyncSession = Depends(get_db)):
     try:
         return await disable_work_center(db, work_center_id)
@@ -550,6 +783,7 @@ async def put_resource_group(
 @router.post(
     "/resource-groups/{group_id}/members",
     response_model=ResourceGroupMemberRead,
+
 )
 async def post_resource_group_member(
     group_id: int,
@@ -575,7 +809,10 @@ async def delete_resource_group_member(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/production/scheduling/schedules/{schedule_id}/orders/{work_order_id}/lock")
+@router.post(
+    "/production/scheduling/schedules/{schedule_id}/orders/{work_order_id}/lock",
+
+)
 async def lock_order(
     schedule_id: int,
     work_order_id: int,
@@ -595,40 +832,11 @@ async def lock_order(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/production/scheduling/schedules/{schedule_id}/orders/{work_order_id}/unlock")
+@router.post(
+    "/production/scheduling/schedules/{schedule_id}/orders/{work_order_id}/unlock",
+
+)
 async def unlock_order(
-    schedule_id: int,
-    work_order_id: int,
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        return await unlock_order_in_schedule(db, schedule_id, work_order_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.patch("/production/scheduling/schedules/{schedule_id}/orders/{work_order_id}/lock")
-async def patch_lock_order(
-    schedule_id: int,
-    work_order_id: int,
-    payload: OrderLockRequest | None = None,
-    db: AsyncSession = Depends(get_db),
-):
-    try:
-        params = payload or OrderLockRequest()
-        return await lock_order_in_schedule(
-            db,
-            schedule_id,
-            work_order_id,
-            locked_by=params.locked_by,
-            note=params.note,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.patch("/production/scheduling/schedules/{schedule_id}/orders/{work_order_id}/unlock")
-async def patch_unlock_order(
     schedule_id: int,
     work_order_id: int,
     db: AsyncSession = Depends(get_db),

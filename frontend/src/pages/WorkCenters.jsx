@@ -11,7 +11,7 @@ import {
   updateMachine,
   deleteMachine,
 } from "../api/production";
-import SummaryCards from "../components/SummaryCards";
+import CompactSummaryStrip from "../components/common/CompactSummaryStrip";
 import EditWorkCenterModal from "../components/work-centers/EditWorkCenterModal";
 import WorkCenterForm from "../components/work-centers/WorkCenterForm";
 import WorkCenterTable from "../components/work-centers/WorkCenterTable";
@@ -43,6 +43,9 @@ export default function WorkCenters() {
     is_external: false,
     default_capacity_per_day: 480,
     default_duration_hours: 8,
+    external_capacity_slots: 1,
+    external_lead_time_hours: "",
+    external_vendor_name: "",
     description: "",
     machine_count: 1,
   });
@@ -79,6 +82,9 @@ export default function WorkCenters() {
         ...form,
         default_capacity_per_day: Number(form.default_capacity_per_day),
         default_duration_hours: Number(form.default_duration_hours),
+        external_capacity_slots: Number(form.external_capacity_slots || 1),
+        external_lead_time_hours: form.external_lead_time_hours === "" ? null : Number(form.external_lead_time_hours),
+        external_vendor_name: form.external_vendor_name || null,
         machine_count: Number(form.machine_count),
       });
       setForm({
@@ -87,6 +93,9 @@ export default function WorkCenters() {
         is_external: false,
         default_capacity_per_day: 480,
         default_duration_hours: 8,
+        external_capacity_slots: 1,
+        external_lead_time_hours: "",
+        external_vendor_name: "",
         description: "",
         machine_count: 1,
       });
@@ -107,6 +116,9 @@ export default function WorkCenters() {
       is_external: center.is_external,
       default_capacity_per_day: center.default_capacity_per_day,
       default_duration_hours: center.default_duration_hours,
+      external_capacity_slots: center.external_capacity_slots || 1,
+      external_lead_time_hours: center.external_lead_time_hours ?? "",
+      external_vendor_name: center.external_vendor_name || "",
       description: center.description || "",
     });
   };
@@ -120,6 +132,9 @@ export default function WorkCenters() {
         ...editForm,
         default_capacity_per_day: Number(editForm.default_capacity_per_day),
         default_duration_hours: Number(editForm.default_duration_hours),
+        external_capacity_slots: Number(editForm.external_capacity_slots || 1),
+        external_lead_time_hours: editForm.external_lead_time_hours === "" ? null : Number(editForm.external_lead_time_hours),
+        external_vendor_name: editForm.external_vendor_name || null,
       });
       setEditingCenter(null);
       setMessage("工段更新成功。");
@@ -270,7 +285,7 @@ export default function WorkCenters() {
 
   return (
     <section className="page-grid">
-      <SummaryCards cards={cards} loading={loading} />
+      <CompactSummaryStrip className="master-data-summary-strip" items={cards} loading={loading} />
 
       {blockedCenters.length > 0 ? (
         <div className="alert danger">

@@ -3,6 +3,7 @@ import { createBrowserRouter } from "react-router-dom";
 import App from "./App";
 import Dashboard from "./pages/Dashboard";
 import Dispatch from "./pages/Dispatch";
+import ExternalTasks from "./pages/ExternalTasks";
 import Gantt from "./pages/Gantt";
 import ManagementDashboard from "./pages/ManagementDashboard";
 import OperationMapping from "./pages/OperationMapping";
@@ -14,6 +15,7 @@ import ScheduleResults from "./pages/ScheduleResults";
 import Scheduling from "./pages/Scheduling";
 import SetupCenter from "./pages/SetupCenter";
 import WorkCenters from "./pages/WorkCenters";
+import WorkOrderTickets from "./pages/WorkOrderTickets";
 import WorkOrderImport from "./pages/WorkOrderImport";
 
 const router = createBrowserRouter([
@@ -23,6 +25,7 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <Dashboard /> },
       { path: "setup", element: <SetupCenter /> },
+      { path: "work-orders", element: <Scheduling /> },
       { path: "work-order-import", element: <WorkOrderImport /> },
       { path: "work-centers", element: <WorkCenters /> },
       { path: "operation-mappings", element: <OperationMapping /> },
@@ -34,6 +37,8 @@ const router = createBrowserRouter([
       { path: "scheduling/board/:scheduleId", element: <ScheduleBoard /> },
       { path: "schedule-results", element: <ScheduleResults /> },
       { path: "dispatch", element: <Dispatch /> },
+      { path: "work-order-tickets", element: <WorkOrderTickets /> },
+      { path: "external-tasks", element: <ExternalTasks /> },
       { path: "management-dashboard", element: <ManagementDashboard /> },
       { path: "gantt", element: <Gantt /> }
     ]

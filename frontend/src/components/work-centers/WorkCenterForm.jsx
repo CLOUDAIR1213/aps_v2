@@ -1,6 +1,6 @@
 export default function WorkCenterForm({ form, onChange, onSubmit, submitting }) {
   return (
-    <div className="panel">
+    <div className="panel compact-page-panel">
       <div className="panel-header">
         <div>
           <h3 className="panel-title">新增工段</h3>
@@ -10,9 +10,9 @@ export default function WorkCenterForm({ form, onChange, onSubmit, submitting })
         </div>
       </div>
 
-      <form className="form-grid" onSubmit={onSubmit}>
-        <label className="field-label">
-          工段名称
+      <form className="table-toolbar work-center-toolbar" onSubmit={onSubmit}>
+        <label className="toolbar-field">
+          <span>工段名称</span>
           <input
             className="field-input"
             value={form.name}
@@ -21,8 +21,8 @@ export default function WorkCenterForm({ form, onChange, onSubmit, submitting })
             required
           />
         </label>
-        <label className="field-label">
-          工段编码
+        <label className="toolbar-field">
+          <span>工段编码</span>
           <input
             className="field-input"
             value={form.code}
@@ -31,8 +31,8 @@ export default function WorkCenterForm({ form, onChange, onSubmit, submitting })
             required
           />
         </label>
-        <label className="field-label">
-          日产能分钟
+        <label className="toolbar-field">
+          <span>日产能分钟</span>
           <input
             className="field-input"
             type="number"
@@ -40,8 +40,8 @@ export default function WorkCenterForm({ form, onChange, onSubmit, submitting })
             onChange={(event) => onChange({ default_capacity_per_day: event.target.value })}
           />
         </label>
-        <label className="field-label">
-          默认外协周期小时
+        <label className="toolbar-field">
+          <span>默认外协周期小时</span>
           <input
             className="field-input"
             type="number"
@@ -49,8 +49,40 @@ export default function WorkCenterForm({ form, onChange, onSubmit, submitting })
             onChange={(event) => onChange({ default_duration_hours: event.target.value })}
           />
         </label>
-        <label className="field-label">
-          设备数量
+        <label className="toolbar-field">
+          <span>外协并发能力</span>
+          <input
+            className="field-input"
+            type="number"
+            min="1"
+            disabled={!form.is_external}
+            value={form.external_capacity_slots}
+            onChange={(event) => onChange({ external_capacity_slots: event.target.value })}
+          />
+        </label>
+        <label className="toolbar-field">
+          <span>供应商</span>
+          <input
+            className="field-input"
+            disabled={!form.is_external}
+            value={form.external_vendor_name}
+            onChange={(event) => onChange({ external_vendor_name: event.target.value })}
+            placeholder="可选"
+          />
+        </label>
+        <label className="toolbar-field">
+          <span>外协周期覆盖</span>
+          <input
+            className="field-input"
+            type="number"
+            disabled={!form.is_external}
+            value={form.external_lead_time_hours}
+            onChange={(event) => onChange({ external_lead_time_hours: event.target.value })}
+            placeholder="默认使用上方周期"
+          />
+        </label>
+        <label className="toolbar-field">
+          <span>设备数量</span>
           <input
             className="field-input"
             type="number"
@@ -60,8 +92,8 @@ export default function WorkCenterForm({ form, onChange, onSubmit, submitting })
             onChange={(event) => onChange({ machine_count: event.target.value })}
           />
         </label>
-        <label className="field-label">
-          说明
+        <label className="toolbar-field">
+          <span>说明</span>
           <input
             className="field-input"
             value={form.description}
@@ -77,7 +109,7 @@ export default function WorkCenterForm({ form, onChange, onSubmit, submitting })
           />
           外协资源
         </label>
-        <div className="form-actions">
+        <div className="toolbar-actions">
           <button className="button" type="submit" disabled={submitting}>
             {submitting ? "创建中..." : "新增工段"}
           </button>

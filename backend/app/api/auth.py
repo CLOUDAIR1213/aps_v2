@@ -1,5 +1,5 @@
-from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -13,6 +13,11 @@ class LoginResponse(BaseModel):
     username: str
     role: str
     token: str
+
+
+class CurrentUser(BaseModel):
+    username: str
+    role: str
 
 
 USERS = {
@@ -32,3 +37,8 @@ async def login(payload: LoginRequest):
         "role": user["role"],
         "token": f"local-{payload.username}-{user['role']}",
     }
+
+
+@router.get("/me", response_model=CurrentUser)
+async def get_me():
+    return {"username": "admin", "role": "admin"}

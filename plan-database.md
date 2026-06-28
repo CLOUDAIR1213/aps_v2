@@ -14,7 +14,8 @@
 当前最重要的数据库原则：
 
 - 新业务继续以 `production_*` 主线为准。
-- 旧 Demo 表只保留兼容，不继续扩展。
+- 旧 demo 代码已删除，不再提供旧接口和旧页面入口。
+- 旧 demo 数据库表暂不在历史迁移中直接修改；如需清库，新增 Alembic 迁移显式删除。
 - 不重复创建含义相同的新表。
 - 基础数据优先保证编码唯一、可禁用、可追溯。
 - 排产结果必须版本化，不覆盖历史方案。
@@ -25,11 +26,11 @@
 
 ## 当前数据库现状
 
-当前项目存在两条数据线。
+当前项目的代码主线已经收敛到 `production_*`。
 
-### 旧 Demo 兼容线
+### 旧 demo 历史表
 
-旧 Demo 表包括：
+历史 Alembic 基线中仍包含早期 demo 表：
 
 - `orders`
 - `machines`
@@ -39,15 +40,13 @@
 - `schedules`
 - `schedule_items`
 
-这些表用于早期演示页面和接口兼容。
+这些表曾用于早期演示页面和接口兼容。当前旧 demo API、CRUD、模型、Schema、服务和前端页面入口已删除，业务代码不再读写这些表。
 
-后续策略：
+当前处理策略：
 
-- 保留读取和兼容能力。
-- 不继续扩展新字段。
-- 不作为新 APS 主线。
-- 菜单和 UI 中逐步弱化。
-- 不在二、三阶段新增功能中依赖这些表。
+- 不在历史基线迁移里直接删除旧表，避免破坏已部署环境的迁移链。
+- 已新增单独 Alembic migration `202606050001_drop_legacy_demo_tables.py`，按依赖顺序 drop 旧 demo 表。
+- 新业务继续只使用 `work_orders`、`resource_machines`、`production_*` 等主线表。
 
 ### APS v2 production 主线
 
@@ -144,7 +143,7 @@ MySQL 落地细则：
 - 每次排产生成 `production_schedules`。
 - 每个方案下的任务写入 `production_schedule_items`。
 - 新方案不覆盖旧方案。
-- 排产方案和明细应在排程校验成功后写入；无启用设备、依赖环或缺失依赖等失败场景不能留下空方案。
+- 排产方案和明细应在排程校验成功后写入；依赖环或缺失依赖等失败场景不能留下空方案。内部工段无 active 人员不阻塞排产。
 
 ### 3. 编码稳定
 
@@ -223,6 +222,9 @@ MySQL 落地细则：
 - `is_external`
 - `default_capacity_per_day`
 - `default_duration_hours`
+- `external_capacity_slots`
+- `external_lead_time_hours`
+- `external_vendor_name`
 - `created_at`
 - `updated_at`
 
@@ -237,8 +239,10 @@ MySQL 落地细则：
 - `name` 必填唯一。
 - 内部工段 `is_external=false`。
 - 外协工段 `is_external=true`。
-- 内部工段没有启用设备时标记为阻塞。
+- 内部工段没有 active 人员时只标记为派工/执行风险，不阻塞排产。
 - 外协工段不要求设备。
+- 外协工段至少保留 1 个并发时段，`external_capacity_slots` 小于 1 时按 1 处理。
+- `external_vendor_name` 仅作为当前外协任务展示字段，不替代后续供应商档案。
 
 #### resource_machines
 
@@ -269,16 +273,15 @@ MySQL 落地细则：
 维护规则：
 
 - `code` 必填唯一。
-- 内部工段至少一台 `active` 设备。
-- 非 active 设备不参与排产。
+- 设备当前不参与排产硬约束，仅保留展示和后续扩展。
 
 #### personnel
 
 用途：
 
 - 人员主数据。
-- 当前不作为排产硬约束。
-- 后续用于执行反馈记录“谁做了”。
+- 当前作为排产硬约束。
+- 排产不再检查同一人员时间重叠；人员分配只作为派工记录和负荷统计。
 
 当前字段：
 
@@ -298,7 +301,7 @@ MySQL 落地细则：
 
 - `employee_no` 必填唯一。
 - 人员通过 `work_center_personnel` 关联工段。
-- 工段无人员只提示风险，不阻塞排产。
+- 内部工段无 active 人员不阻塞排产，排产按工段产能继续生成方案。
 
 #### work_center_personnel
 
@@ -317,7 +320,7 @@ MySQL 落地细则：
 维护规则：
 
 - `work_center_id + person_id` 唯一。
-- 第一版可用 `sort_order` 决定排班表默认人员。
+- `sort_order` 用于同一时间可用人员的稳定排序。
 
 #### work_orders
 
@@ -606,6 +609,11 @@ MySQL 落地细则：
 - `end_time`
 - `sequence_on_resource`
 - `is_external`
+- `external_status`
+- `external_sent_at`
+- `external_returned_at`
+- `external_expected_return_at`
+- `external_note`
 - `created_at`
 
 建议补充：
@@ -616,12 +624,18 @@ MySQL 落地细则：
 | locked_at | DateTime | 锁定时间 |
 | locked_by | String(80) | 锁定人 |
 | lock_reason | Text | 锁定原因 |
+| external_status | String(30) | 外协状态：pending、sent、returned、exception |
+| external_sent_at | DateTime | 外协送出时间 |
+| external_returned_at | DateTime | 外协实际返回时间 |
+| external_expected_return_at | DateTime | 外协预计返回时间 |
+| external_note | Text | 外协备注 |
 
 设计理由：
 
 - 用户看到的是“整单锁定”。
 - 技术上可以锁定该订单在该方案下的所有 `production_schedule_items`。
 - 后续如果需要工序级锁定，不需要改结构。
+- 外协反馈直接挂在排产明细上，因为它描述的是某个方案中某道外协任务的计划和执行状态。
 
 工时口径：
 
@@ -629,6 +643,7 @@ MySQL 落地细则：
 - 排产时有效产能工时为 `duration_hours * max(Part.quantity, 1)`。
 - `production_schedule_items` 不额外落库有效工时，结果、负荷和导出按已保存的 `start_time` / `end_time` 在工作日历内反推占用工时。
 - 旧历史方案不会因新工时口径被批量重算。
+- 外协预计/实际返回时间会更新该明细的 `end_time`，并触发同方案后续依赖任务重算。
 
 索引建议：
 
@@ -795,8 +810,7 @@ MySQL 落地细则：
 
 设计理由：
 
-- 不提前把人员变成排产硬约束。
-- 先把执行反馈作为实际记录。
+- 人员不是排产硬约束，执行反馈继续作为实际记录。
 - 后续滚动重排可基于实际完成情况。
 
 ## 轻量日历
@@ -1025,7 +1039,7 @@ MySQL 落地细则：
 - 后端数据库连接改为 MySQL。
 - 增加 `alembic` 依赖和迁移目录。
 - 初始化 Alembic 配置。
-- 用 Alembic 生成当前 `production_*` 主线和兼容旧表的基线迁移。
+- 用 Alembic 生成当前 `production_*` 主线基线迁移；旧 demo 表只作为历史基线遗留项处理。
 - 后续新增表、字段、索引、约束全部走迁移脚本。
 - `Base.metadata.create_all` 不再作为正式建表方式。
 
@@ -1055,11 +1069,13 @@ MySQL 落地细则：
 
 当前实际验证：
 
-- 已在 MySQL 数据库 `aps_v2` 上执行迁移到 head。
-- 当前全量主线 `alembic_version.version_num` 为 `202605190001`。
+- 已在 MySQL 数据库 `aps_v2` 上验证到 `202605190001`。
+- 当前代码迁移 head 为 `202606050001`，包含外协并发时段、状态反馈字段、导入备注字段和旧 demo 表清理迁移；数据库需执行 `upgrade head` 后再确认版本。
 - 已确认 PLAN2 表 `production_schedule_order_locks`、`export_batches` 存在。
 - 已确认 PLAN2 字段 `production_schedules.start_time`、`production_schedules.base_schedule_id`、`production_schedules.run_params_json`、`production_schedule_items.locked` 存在。
 - 已确认 PLAN3 表 `business_risk_issue_states` 存在，用于保存经营问题处理状态和备注。
+- 新增外协字段需确认：`work_centers.external_capacity_slots`、`work_centers.external_lead_time_hours`、`work_centers.external_vendor_name`、`production_schedule_items.external_status`、`production_schedule_items.external_expected_return_at`。
+- 旧 demo 表 `orders`、`machines`、`routings`、`routing_operations`、`schedule_tasks`、`schedules`、`schedule_items` 已通过 `202606050001` 进入清理迁移。
 
 ### 数据迁移策略
 
@@ -1126,8 +1142,8 @@ MySQL 落地细则：
 ### 第二步：整理数据库主线
 
 - 明确 `production_*` 为唯一新业务主线。
-- 旧 Demo 表保留兼容，不再扩展。
-- README 或文档中注明旧表用途。
+- 旧 demo 代码已删除，不再扩展旧接口、旧模型和旧页面。
+- README 或文档中注明旧表只是历史基线遗留，后续删除必须走新迁移。
 
 ### 第三步：补齐第一阶段基础数据表
 
@@ -1160,7 +1176,7 @@ MySQL 落地细则：
 文档检查：
 
 - 是否明确 `production_*` 是唯一新主线。
-- 是否明确旧 Demo 表只保留兼容。
+- 是否明确旧 demo 代码已删除、旧表如需清理必须走新 Alembic 迁移。
 - 是否覆盖一阶段基础数据。
 - 是否覆盖二阶段锁单、导出、排产参数。
 - 是否覆盖三阶段经营问题状态。
@@ -1171,7 +1187,7 @@ MySQL 落地细则：
 后续实现验证：
 
 - 后端启动后新表可创建。
-- 旧页面兼容表不受影响。
+- 删除旧表前，当前主线功能不受历史 demo 表影响。
 - 新业务只读写 `production_*` 主线。
 - 编码唯一约束生效。
 - 排产方案历史可回看。
@@ -1186,7 +1202,8 @@ MySQL 落地细则：
 - 正式数据库直接使用 MySQL 8.0。
 - Alembic 必须在下一轮数据库结构变更前引入。
 - SQLite 不再作为后续系统扩展目标。
-- 不立即删除旧 Demo 表。
+- 不直接改历史迁移删除旧 demo 表。
+- 如果要物理删除旧表，新增独立 Alembic 迁移并先确认线上/本地历史数据不再需要。
 - 不把物料、模具、执行反馈一次性提前实现。
 - 数据库设计优先保证可维护、可追溯、可扩展。
 - 业务计算放后端，不放前端。

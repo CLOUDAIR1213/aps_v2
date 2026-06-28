@@ -9,7 +9,7 @@ import {
   updateManagementIssueState,
 } from "../api/production";
 import CurrentScheduleBanner from "../components/common/CurrentScheduleBanner";
-import SummaryCards from "../components/SummaryCards";
+import CompactSummaryStrip from "../components/common/CompactSummaryStrip";
 import StatusBadge from "../components/StatusBadge";
 import { formatDateTime, formatPercent } from "../utils/formatters";
 import { buildScheduleBoardPath, buildSchedulePath, setActiveScheduleId } from "../utils/scheduleContext";
@@ -282,7 +282,7 @@ export default function ManagementDashboard() {
       {error ? <div className="alert danger">{error}</div> : null}
       <CurrentScheduleBanner overview={scheduleOverview} schedule={currentSchedule} />
 
-      <div className="panel">
+      <div className="panel compact-page-panel">
         <div className="panel-header">
           <div>
             <h3 className="panel-title">交付风险看板</h3>
@@ -312,9 +312,9 @@ export default function ManagementDashboard() {
           </div>
         </div>
 
-        <div className="management-filter-grid">
-          <label className="field-label">
-            排产方案
+        <div className="table-toolbar management-filter-grid">
+          <label className="toolbar-field">
+            <span>排产方案</span>
             <select className="field-input" value={filters.schedule_id} onChange={(e) => updateFilter("schedule_id", e.target.value)}>
               {schedules.map((schedule) => (
                 <option key={schedule.id} value={schedule.id}>
@@ -323,8 +323,8 @@ export default function ManagementDashboard() {
               ))}
             </select>
           </label>
-          <label className="field-label">
-            时间范围
+          <label className="toolbar-field">
+            <span>时间范围</span>
             <select className="field-input" value={filters.horizon_days} onChange={(e) => updateFilter("horizon_days", e.target.value)}>
               <option value="7">未来 7 天</option>
               <option value="14">未来 14 天</option>
@@ -332,8 +332,8 @@ export default function ManagementDashboard() {
               <option value="60">未来 60 天</option>
             </select>
           </label>
-          <label className="field-label">
-            风险等级
+          <label className="toolbar-field">
+            <span>风险等级</span>
             <select className="field-input" value={filters.risk_level} onChange={(e) => updateFilter("risk_level", e.target.value)}>
               <option value="">全部</option>
               <option value="high">高风险</option>
@@ -341,8 +341,8 @@ export default function ManagementDashboard() {
               <option value="low">低风险</option>
             </select>
           </label>
-          <label className="field-label">
-            问题类型
+          <label className="toolbar-field">
+            <span>问题类型</span>
             <select className="field-input" value={filters.risk_type} onChange={(e) => updateFilter("risk_type", e.target.value)}>
               <option value="">全部</option>
               {dashboard.risk_types.map((type) => (
@@ -350,8 +350,8 @@ export default function ManagementDashboard() {
               ))}
             </select>
           </label>
-          <label className="field-label">
-            客户
+          <label className="toolbar-field">
+            <span>客户</span>
             <select className="field-input" value={filters.customer} onChange={(e) => updateFilter("customer", e.target.value)}>
               <option value="">全部</option>
               {dashboard.customers.map((name) => (
@@ -359,8 +359,8 @@ export default function ManagementDashboard() {
               ))}
             </select>
           </label>
-          <label className="field-label">
-            处理状态
+          <label className="toolbar-field">
+            <span>处理状态</span>
             <select className="field-input" value={filters.status} onChange={(e) => updateFilter("status", e.target.value)}>
               <option value="">全部</option>
               {Object.entries(statusLabels).map(([value, label]) => (
@@ -368,7 +368,7 @@ export default function ManagementDashboard() {
               ))}
             </select>
           </label>
-          <div className="management-filter-actions">
+          <div className="toolbar-actions management-filter-actions">
             <button className="button" type="button" onClick={applyFilters}>筛选</button>
             <button className="button ghost" type="button" onClick={resetFilters}>重置</button>
           </div>
@@ -485,7 +485,7 @@ export default function ManagementDashboard() {
           </div>
         ) : null}
 
-        <SummaryCards cards={cards} />
+        <CompactSummaryStrip className="management-summary-strip" items={cards} />
 
         <div className="split-grid">
           <div className="panel">
