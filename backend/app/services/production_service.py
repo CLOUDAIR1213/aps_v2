@@ -5,6 +5,7 @@ import re
 from io import BytesIO
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
@@ -2444,10 +2445,6 @@ async def export_construction_sheets_to_excel(
     date_from: date | None = None,
     date_to: date | None = None,
 ) -> tuple[bytes, str]:
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-    from openpyxl.utils import get_column_letter
-
     schedule = await db.get(ProductionSchedule, schedule_id)
     if schedule is None:
         raise ValueError("排产方案不存在。")
@@ -2508,21 +2505,11 @@ async def export_construction_sheets_to_excel(
     if not ordered_groups:
         raise ValueError("当前筛选条件下没有可导出的施工单。")
 
-    wb = Workbook()
-    default_ws = wb.active
-    wb.remove(default_ws)
-
-    title_font = Font(name="SimSun", size=18, bold=True)
-    company_font = Font(name="SimSun", size=14, bold=True)
-    header_font = Font(name="SimSun", size=11, bold=True)
-    body_font = Font(name="SimSun", size=11)
-    small_font = Font(name="SimSun", size=10)
-    barcode_font = Font(name="C39HrP24DhTt", size=22)
-    header_fill = PatternFill(start_color="E9EEF5", end_color="E9EEF5", fill_type="solid")
-    thin = Side(style="thin", color="000000")
-    medium = Side(style="medium", color="000000")
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    section_border = Border(left=thin, right=thin, top=medium, bottom=thin)
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "construction_sheet_template.xlsx"
+    if not template_path.exists():
+        raise ValueError("施工单模板文件缺失，无法生成施工单。")
+    wb = load_workbook(template_path)
+    template_ws = wb.active
 
     def safe_sheet_title(base: str, used: set[str]) -> str:
         cleaned = re.sub(r"[:\\/?*\[\]]+", "-", base).strip() or "施工单"
@@ -2545,18 +2532,56 @@ async def export_construction_sheets_to_excel(
     def fmt_hours(value: float | int | None) -> float:
         return round(float(value or 0), 2)
 
-    def merge(ws, start: str, end: str, value: Any = None) -> None:
-        ws.merge_cells(f"{start}:{end}")
-        if value is not None:
-            ws[start] = value
+    operation_rows = list(range(7, 25)) + list(range(26, 44))
 
-    def style_range(ws, row_start: int, row_end: int, col_start: int = 1, col_end: int = 13) -> None:
-        for row in range(row_start, row_end + 1):
-            for col in range(col_start, col_end + 1):
-                cell = ws.cell(row, col)
-                cell.border = border
-                cell.font = body_font
-                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    def clear_operation_rows(ws) -> None:
+        for row in operation_rows:
+            for col in (1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13):
+                ws.cell(row, col).value = None
+
+    def fill_header(ws, work_order: WorkOrder, part: Part) -> None:
+        ws["L1"] = part.drawing_no or part.no or ""
+        ws["L2"] = part.name or ""
+        ws["C3"] = part.material or ""
+        ws["E4"] = part.material_weight or ""
+        ws["H4"] = work_order.quantity
+        ws["M3"] = work_order.order_no
+        ws["M4"] = fmt_day(work_order.due_date)
+
+    def barcode_value(item: ProductionScheduleItem) -> str:
+        operation = item.operation
+        drawing_no = operation.part.drawing_no or operation.part.no or ""
+        suffix = operation.source_col or operation.seq_no
+        return f"*{drawing_no}+{suffix}*"
+
+    def fill_operation_rows(ws, chunk: list[ProductionScheduleItem], offset: int) -> None:
+        clear_operation_rows(ws)
+        for index, item in enumerate(chunk, 1):
+            row_idx = operation_rows[index - 1]
+            op = item.operation
+            exported_item_ids.append(item.id)
+            ws.cell(row_idx, 1).value = offset + index
+            ws.cell(row_idx, 2).value = op.name
+            ws.cell(row_idx, 3).value = op.requirement_note or ""
+            ws.cell(row_idx, 6).value = fmt_hours(op.duration_hours)
+            ws.cell(row_idx, 7).value = fmt_day(item.start_time)
+            ws.cell(row_idx, 8).value = ""
+            ws.cell(row_idx, 9).value = ""
+            ws.cell(row_idx, 10).value = ""
+            ws.cell(row_idx, 11).value = ""
+            ws.cell(row_idx, 12).value = op.part.note or ""
+            ws.cell(row_idx, 13).value = barcode_value(item)
+
+    def set_continuation_rows_visible(ws, visible: bool) -> None:
+        for row_idx in range(26, 45):
+            ws.row_dimensions[row_idx].hidden = not visible
+
+    def worksheet_for_group(base_title: str, used_titles: set[str], continuation_index: int | None = None):
+        title_base = base_title if continuation_index is None else f"{base_title}-{continuation_index}"
+        ws = wb.copy_worksheet(template_ws)
+        ws.title = safe_sheet_title(title_base, used_titles)
+        ws.print_title_rows = "1:6"
+        return ws
 
     used_titles: set[str] = set()
     exported_item_ids: list[int] = []
@@ -2566,115 +2591,21 @@ async def export_construction_sheets_to_excel(
         operation = first.operation
         work_order = operation.work_order
         part = operation.part
-        title = safe_sheet_title(f"{work_order.order_no}-{part.drawing_no or part.no}", used_titles)
-        ws = wb.create_sheet(title=title)
+        base_title = f"{work_order.order_no}-{part.drawing_no or part.no}"
+        for chunk_start in range(0, len(group), len(operation_rows)):
+            chunk = group[chunk_start:chunk_start + len(operation_rows)]
+            continuation_index = None if chunk_start == 0 else (chunk_start // len(operation_rows)) + 1
+            ws = worksheet_for_group(base_title, used_titles, continuation_index=continuation_index)
+            fill_header(ws, work_order, part)
+            fill_operation_rows(ws, chunk, chunk_start)
+            if len(chunk) > 18 or chunk_start > 0:
+                set_continuation_rows_visible(ws, True)
+                ws.print_area = f"A1:M44"
+            else:
+                set_continuation_rows_visible(ws, False)
+                ws.print_area = f"A1:M25"
 
-        ws.sheet_view.showGridLines = False
-        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
-        ws.page_setup.paperSize = ws.PAPERSIZE_A4
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.page_margins.left = 0.25
-        ws.page_margins.right = 0.25
-        ws.page_margins.top = 0.36
-        ws.page_margins.bottom = 0.42
-        ws.print_title_rows = "1:6"
-
-        widths = [8, 14, 16, 16, 16, 12, 13, 13, 12, 10, 10, 24, 18]
-        for idx, width in enumerate(widths, 1):
-            ws.column_dimensions[get_column_letter(idx)].width = width
-
-        merge(ws, "A1", "D1", "上海光灿机械制造有限公司")
-        merge(ws, "E1", "J1", "零 件 工 艺 施 工 单")
-        ws["K1"] = "图号"
-        merge(ws, "L1", "M1", part.drawing_no or part.no or "")
-        merge(ws, "A2", "D2", "GC-5-02-1")
-        merge(ws, "E2", "J2", f"排产方案：{schedule.schedule_no}")
-        ws["K2"] = "名称"
-        merge(ws, "L2", "M2", part.name or "")
-        ws["A3"] = "材料牌号"
-        merge(ws, "B3", "D3", part.material or "")
-        ws["E3"] = "材料重量"
-        ws["F3"] = part.material_weight or ""
-        merge(ws, "G3", "J3", "每件毛坯加工件数")
-        ws["K3"] = "订单号，工号"
-        merge(ws, "L3", "M3", work_order.order_no)
-        ws["A4"] = "毛坯种类"
-        merge(ws, "B4", "D4", "")
-        ws["E4"] = "订单数量"
-        ws["F4"] = work_order.quantity
-        merge(ws, "G4", "J4", f"零件数量：{part.quantity}")
-        ws["K4"] = "要求完成日期"
-        merge(ws, "L4", "M4", fmt_day(work_order.due_date))
-
-        merge(ws, "A5", "A6", "序号")
-        merge(ws, "B5", "B6", "工 序")
-        merge(ws, "C5", "E6", "工序重点说明，夹具，刀具，量具准备")
-        merge(ws, "F5", "F6", "单件 H工时")
-        merge(ws, "G5", "G6", "工作日期")
-        merge(ws, "H5", "H6", "完工日期")
-        merge(ws, "I5", "I6", "操作员")
-        merge(ws, "J5", "K5", "检验")
-        ws["J6"] = "合格数"
-        ws["K6"] = "检验员"
-        merge(ws, "L5", "L6", "关键尺寸/备注")
-        ws["M5"] = "条码"
-        ws["M6"] = "图号，工序"
-
-        style_range(ws, 1, 6)
-        for cell in ws[1]:
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        ws["A1"].font = company_font
-        ws["E1"].font = title_font
-        for row in range(5, 7):
-            for col in range(1, 14):
-                cell = ws.cell(row, col)
-                cell.font = header_font
-                cell.fill = header_fill
-
-        row_idx = 7
-        for index, item in enumerate(group, 1):
-            op = item.operation
-            ticket_no = f"JG-{schedule.schedule_no}-{item.id}"
-            exported_item_ids.append(item.id)
-            values = {
-                1: index,
-                2: op.name,
-                3: op.requirement_note or "",
-                6: fmt_hours(op.duration_hours),
-                7: fmt_day(item.start_time),
-                8: "",
-                9: "",
-                10: "",
-                11: "",
-                12: part.note or "",
-                13: f"*{ticket_no}*",
-            }
-            for col, value in values.items():
-                ws.cell(row_idx, col).value = value
-            merge(ws, f"C{row_idx}", f"E{row_idx}")
-            style_range(ws, row_idx, row_idx)
-            for col in range(1, 14):
-                ws.cell(row_idx, col).border = section_border if index == 1 else border
-            ws.cell(row_idx, 2).font = header_font
-            ws.cell(row_idx, 3).font = small_font
-            ws.cell(row_idx, 12).font = small_font
-            ws.cell(row_idx, 13).font = barcode_font
-            ws.cell(row_idx, 3).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-            ws.cell(row_idx, 12).alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
-            ws.row_dimensions[row_idx].height = 34
-            row_idx += 1
-
-        signature_row = max(row_idx, 25)
-        for blank_row in range(row_idx, signature_row):
-            style_range(ws, blank_row, blank_row)
-            ws.row_dimensions[blank_row].height = 28
-        merge(ws, f"A{signature_row}", f"M{signature_row}", "制表：")
-        style_range(ws, signature_row, signature_row)
-        ws.cell(signature_row, 1).alignment = Alignment(horizontal="left", vertical="center")
-        ws.row_dimensions[signature_row].height = 28
-        ws.print_area = f"A1:M{signature_row}"
+    wb.remove(template_ws)
 
     buffer = BytesIO()
     wb.save(buffer)

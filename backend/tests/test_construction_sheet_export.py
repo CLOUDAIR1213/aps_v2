@@ -150,15 +150,26 @@ class ConstructionSheetExportTests(unittest.TestCase):
                     self.assertTrue(filename.startswith("施工单_PS-TEST_"))
                     self.assertEqual(workbook.sheetnames, ["WO-001-DWG-A", "WO-001-DWG-B"])
                     sheet = workbook["WO-001-DWG-A"]
+                    self.assertEqual(sheet.max_row, 44)
+                    self.assertEqual(sheet.max_column, 13)
+                    self.assertEqual(sheet.column_dimensions["M"].width, 43.625)
+                    self.assertEqual(sheet.row_dimensions[7].height, 23.25)
                     self.assertEqual(sheet["E1"].value, "零 件 工 艺 施 工 单")
                     self.assertEqual(sheet["L1"].value, "DWG-A")
                     self.assertEqual(sheet["L2"].value, "支架A")
+                    self.assertEqual(sheet["C3"].value, "Q235")
+                    self.assertEqual(sheet["E4"].value, 1.25)
+                    self.assertEqual(sheet["H4"].value, 5)
+                    self.assertEqual(sheet["M3"].value, "WO-001")
                     self.assertEqual(sheet["B7"].value, "拼装")
                     self.assertEqual(sheet["C7"].value, "夹具A")
                     self.assertEqual(sheet["F7"].value, 1.5)
                     self.assertEqual(sheet["L7"].value, "关键尺寸A")
-                    self.assertEqual(sheet["M7"].value, f"*JG-PS-TEST-{items[0].id}*")
+                    self.assertEqual(sheet["M7"].value, "*DWG-A+12*")
                     self.assertEqual(sheet.print_title_rows, "$1:$6")
+                    self.assertEqual(str(sheet.print_area), "'WO-001-DWG-A'!$A$1:$M$25")
+                    self.assertTrue(sheet.row_dimensions[26].hidden)
+                    self.assertTrue(sheet.row_dimensions[44].hidden)
 
                     export_record = await session.scalar(
                         select(ExportBatch).where(ExportBatch.export_type == "construction_sheet")
@@ -230,9 +241,12 @@ class ConstructionSheetExportTests(unittest.TestCase):
                     content, _filename = await export_construction_sheets_to_excel(session, schedule.id)
                     sheet = load_workbook(BytesIO(content))["WO-OVER-DWG-LONG"]
 
-                    self.assertEqual(sheet["B26"].value, "工序20")
-                    self.assertEqual(sheet["A27"].value, "制表：")
-                    self.assertEqual(str(sheet.print_area), "'WO-OVER-DWG-LONG'!$A$1:$M$27")
+                    self.assertEqual(sheet["B26"].value, "工序19")
+                    self.assertEqual(sheet["B27"].value, "工序20")
+                    self.assertEqual(sheet["A44"].value, "制表：")
+                    self.assertEqual(str(sheet.print_area), "'WO-OVER-DWG-LONG'!$A$1:$M$44")
+                    self.assertFalse(sheet.row_dimensions[26].hidden)
+                    self.assertFalse(sheet.row_dimensions[44].hidden)
             finally:
                 await engine.dispose()
 
